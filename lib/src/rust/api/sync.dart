@@ -633,6 +633,17 @@ class SyncState {
   final PlatformInt64 configUpdatedAt;
   final PlatformInt64 chatstartedUpdatedAt;
 
+  /// `created_at` of the newest friend-protocol/chat event this device has
+  /// successfully processed, across every relay — used as `since` when
+  /// (re)subscribing in [run_friend_event_subscription] so a reconnect (app
+  /// relaunch, network drop) only asks relays to redeliver what's newer
+  /// than this, instead of replaying the account's entire history every
+  /// time. Only advanced on confirmed-successful processing (see call
+  /// sites in [listen_for_friend_events]), never on a bare decode attempt,
+  /// so a transient failure (e.g. a friend's key material not loaded into
+  /// `watch` yet) stays eligible for redelivery on the next resubscribe.
+  final PlatformInt64 friendEventsSince;
+
   const SyncState({
     required this.avatarUpdatedAt,
     required this.relaysUpdatedAt,
@@ -644,6 +655,7 @@ class SyncState {
     required this.readstateUpdatedAt,
     required this.configUpdatedAt,
     required this.chatstartedUpdatedAt,
+    required this.friendEventsSince,
   });
 
   static Future<SyncState> default_() =>
@@ -660,7 +672,8 @@ class SyncState {
       incomingUpdatedAt.hashCode ^
       readstateUpdatedAt.hashCode ^
       configUpdatedAt.hashCode ^
-      chatstartedUpdatedAt.hashCode;
+      chatstartedUpdatedAt.hashCode ^
+      friendEventsSince.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -676,5 +689,6 @@ class SyncState {
           incomingUpdatedAt == other.incomingUpdatedAt &&
           readstateUpdatedAt == other.readstateUpdatedAt &&
           configUpdatedAt == other.configUpdatedAt &&
-          chatstartedUpdatedAt == other.chatstartedUpdatedAt;
+          chatstartedUpdatedAt == other.chatstartedUpdatedAt &&
+          friendEventsSince == other.friendEventsSince;
 }

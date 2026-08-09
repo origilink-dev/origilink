@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:origilink/l10n/app_localizations.dart';
 import 'package:origilink/screens/login.dart';
 import 'package:origilink/screens/logout.dart' show seedStorageKey;
+import 'package:origilink/services/account_sync.dart' show friendEventsRefreshSignal;
 import 'package:origilink/services/ratchet_key.dart';
 import 'package:origilink/src/rust/api/relay.dart' as relay_api;
 import 'package:origilink/src/rust/api/sync.dart' as sync_api;
@@ -79,6 +80,14 @@ class _FriendRequestsScreenState extends State<FriendRequestsScreen> {
         ).showSnackBar(SnackBar(content: Text(l10n.friendAlreadyAddedMessage)));
       }
       unawaited(announceRatchetDeviceTo(request.pubkey));
+      // Accepting adds this pubkey to friends.json, but the live
+      // subscription's watch list (home.dart's `_subscribeFriendEvents`)
+      // was built before this friend existed — without this, our own
+      // acceptance never rebuilds it (that only happens on the *other*
+      // side, when its 'accepted' event arrives), so this device would
+      // silently fail to receive anything from the new friend until the
+      // next unrelated resubscribe.
+      friendEventsRefreshSignal.value++;
     }
     if (!mounted) return;
     setState(() {

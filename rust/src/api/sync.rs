@@ -1074,6 +1074,30 @@ async fn run_friend_event_subscription(
         relay_set.extend(outgoing.invite_relays.iter().cloned());
     }
 
+    // Anchoring on the persisted watermark (rather than no bound at all)
+    // means a fresh subscription — app relaunch or a mid-session reconnect —
+    // only asks relays to redeliver what's newer than the last event this
+    // device actually finished processing, instead of the account's entire
+    // history every time. A brand new account has no watermark yet (0),
+    // which is `since` the Unix epoch — equivalent to no bound, as it should
+    // be on first run.
+    //
+    // GiftWrap needs extra slack: per NIP-59, its outer `created_at` is
+    // deliberately randomized up to `nostr::nips::nip59::RANGE_RANDOM_TIMESTAMP_TWEAK`
+    // (2 days) *into the past*, as a privacy measure against send-time
+    // correlation. A message sent this instant can therefore legitimately
+    // carry a `created_at` up to 2 days old — a plain `since = watermark`
+    // bound would silently and permanently drop it the moment the
+    // watermark (advanced by other, non-backdated traffic) passes that
+    // point, since nothing ever resubscribes without a bound again. Padding
+    // `since` back by that same 2-day window covers the worst case; the
+    // other kinds in this filter aren't gift-wrapped and use real
+    // timestamps, so the only cost is a slightly wider (still bounded, still
+    // far cheaper than unbounded) redelivery window for them too.
+    let since = Timestamp::from(
+        (load_sync_state(&storage_dir).friend_events_since.max(0) as u64)
+            .saturating_sub(nostr::nips::nip59::RANGE_RANDOM_TIMESTAMP_TWEAK.end),
+    );
     let filter = if watch.is_empty() {
         None
     } else {
@@ -1081,7 +1105,8 @@ async fn run_friend_event_subscription(
         Some(
             Filter::new()
                 .kinds([FRIEND_REQUEST_KIND, FRIEND_ACCEPT_KIND, FRIEND_PROFILE_UPDATE_KIND, Kind::GiftWrap])
-                .pubkeys(pubkeys),
+                .pubkeys(pubkeys)
+                .since(since),
         )
     };
 
@@ -1220,6 +1245,17 @@ pub struct SyncState {
     pub config_updated_at: i64,
     #[serde(default)]
     pub chatstarted_updated_at: i64,
+    /// `created_at` of the newest friend-protocol/chat event this device has
+    /// successfully processed, across every relay — used as `since` when
+    /// (re)subscribing in [run_friend_event_subscription] so a reconnect (app
+    /// relaunch, network drop) only asks relays to redeliver what's newer
+    /// than this, instead of replaying the account's entire history every
+    /// time. Only advanced on confirmed-successful processing (see call
+    /// sites in [listen_for_friend_events]), never on a bare decode attempt,
+    /// so a transient failure (e.g. a friend's key material not loaded into
+    /// `watch` yet) stays eligible for redelivery on the next resubscribe.
+    #[serde(default)]
+    pub friend_events_since: i64,
 }
 
 fn sync_state_path(storage_dir: &str) -> std::path::PathBuf {
@@ -1254,28 +1290,23 @@ async fn listen_for_account_sync(
     let Ok(keys) = derive_keys(mnemonic) else {
         return;
     };
-    const RESUBSCRIBE_INTERVAL: Duration = Duration::from_secs(90);
-    let Some((mut sub_id, mut events)) = relay_pool::subscribe(url, filter).await else {
+    // No periodic resubscribe here (unlike a plain `since`-based fix, that
+    // wouldn't even be safe: these are addressable/replaceable events, so a
+    // relay only ever holds the current snapshot per slot, not a growing
+    // history — an unmodified-but-not-yet-applied snapshot could permanently
+    // fail to match a `since` bound). Relying on cold-start's one-shot
+    // `fetch_account_*_backup` plus this live subscription (rebuilt by the
+    // caller's backoff retry loop on any real disconnect) means the only
+    // cost of *not* periodically re-polling is a delay — until the next
+    // reconnect or app relaunch — in picking up another device's update if
+    // a relay hits the silent-delivery-stall bug described in
+    // `listen_for_friend_events`, not any lost or corrupted state.
+    let Some((sub_id, mut events)) = relay_pool::subscribe(url, filter).await else {
         return;
     };
 
     loop {
-        let pool_event = tokio::select! {
-            event = events.recv() => event,
-            _ = tokio::time::sleep(RESUBSCRIBE_INTERVAL) => {
-                // See the matching comment in `listen_for_friend_events` —
-                // relays can silently stop delivering on a long-lived REQ
-                // without ever closing the connection.
-                relay_pool::unsubscribe(url, sub_id.clone());
-                let Some((new_sub_id, new_events)) = relay_pool::subscribe(url, filter).await else {
-                    return;
-                };
-                sub_id = new_sub_id;
-                events = new_events;
-                continue;
-            }
-        };
-        let Some(pool_event) = pool_event else {
+        let Some(pool_event) = events.recv().await else {
             break;
         };
         if subscription_generation().load(std::sync::atomic::Ordering::SeqCst) != generation {
@@ -1537,43 +1568,27 @@ async fn listen_for_friend_events(
     sink: &StreamSink<FriendEvent>,
     generation: u64,
 ) {
-    // Some relays silently stop delivering events on a long-lived `REQ`
-    // while the underlying WebSocket stays alive and keeps answering
-    // ping/pong — confirmed live: a friend request got an `OK:true` from
-    // every relay it was published to, yet a recipient subscribed since
-    // before the publish never received it. Periodically closing and
-    // reopening the subscription (same filter, fresh sub_id) works around
-    // this — relays treat it as a brand-new `REQ` and redeliver anything
-    // matching, since this filter carries no `since` bound.
-    const RESUBSCRIBE_INTERVAL: Duration = Duration::from_secs(90);
-
-    let Some((mut sub_id, mut events)) = relay_pool::subscribe(url, filter).await else {
+    // Reconnection (the pooled connection dropping, e.g. a network blip or
+    // the OS freezing sockets while backgrounded) is handled by the retry
+    // loop one level up in `run_friend_event_subscription`'s caller — this
+    // function simply returns once `events.recv()` yields nothing more, and
+    // the fresh subscription that follows carries `since` (see that
+    // function's `since` — anchored on the persisted watermark, not "no
+    // bound"), so a reconnect only asks for what's new since the last
+    // successfully processed event instead of replaying all of history.
+    let Some((sub_id, mut events)) = relay_pool::subscribe(url, filter).await else {
         return;
     };
     let my_relays = relay::load_relay_list(storage_dir.to_string()).urls;
 
     loop {
-        let pool_event = tokio::select! {
-            event = events.recv() => event,
-            _ = tokio::time::sleep(RESUBSCRIBE_INTERVAL) => {
-                relay_pool::unsubscribe(url, sub_id.clone());
-                let Some((new_sub_id, new_events)) = relay_pool::subscribe(url, filter).await else {
-                    return;
-                };
-                sub_id = new_sub_id;
-                events = new_events;
-                continue;
-            }
-        };
-        let Some(pool_event) = pool_event else {
+        let Some(pool_event) = events.recv().await else {
             break;
         };
         if subscription_generation().load(std::sync::atomic::Ordering::SeqCst) != generation {
             // A newer subscription (from a fresh Dart-side resubscribe) has
             // superseded this one — stop before mutating friends.json /
             // requests / etc. from an event nothing will be notified about.
-            // The relay carries no `since` on this filter, so the current
-            // subscription will simply be handed the same event again.
             break;
         }
         let relay_pool::PoolEvent::Event(event) = pool_event else {
@@ -1585,12 +1600,13 @@ async fn listen_for_friend_events(
         else {
             // Not (yet) in this task's watch list — do NOT mark it seen: a
             // friend added moments ago may not be in `watch` until the next
-            // resubscribe picks up the fresh list, and this filter carries
-            // no `since` specifically so that resubscribe can catch this
-            // same event again. Marking it seen here would permanently
-            // blacklist it, since `mark_event_seen`'s dedup set lives for
-            // the whole process lifetime, not just this subscription
-            // generation.
+            // resubscribe picks up the fresh list. Since `friend_events_since`
+            // only advances on confirmed-successful processing (see the
+            // watermark bumps below), this event's `created_at` is still
+            // ahead of that watermark and a future resubscribe will see it
+            // again. Marking it seen here would permanently blacklist it,
+            // since `mark_event_seen`'s dedup set lives for the whole
+            // process lifetime, not just this subscription generation.
             continue;
         };
         // GiftWrap decoding can genuinely fail transiently (e.g. a friend
@@ -1598,24 +1614,30 @@ async fn listen_for_friend_events(
         // wrong-guess decode attempt against a kind that turns out to
         // belong to a different friend) — unlike the other kinds here,
         // which reliably decrypt with a single nip44 call once matched.
-        // Marking a GiftWrap "seen" before knowing it actually decoded
-        // would permanently blacklist it (this filter carries no `since`
-        // specifically so a resubscribe can retry), so for GiftWrap the
-        // dedup mark is applied per-success-path below instead, right
-        // before each `sink.add`, not here.
+        // Marking a GiftWrap "seen" before knowing it actually decoded would
+        // permanently blacklist it with no way to retry (the dedup set lives
+        // for the process lifetime, and the watermark below only advances on
+        // confirmed success, so a resubscribe's `since` would still be
+        // behind this event) — so for GiftWrap the dedup mark is applied
+        // per-success-path below instead, right before each `sink.add`, not
+        // here.
         if event.kind != Kind::GiftWrap {
             if !mark_event_seen(event.id) {
                 // The same event arrives once per relay it matched on (3
-                // relay tasks all racing to process it) plus again on every
-                // periodic resubscribe — each redundant delivery used to
-                // independently re-run `add_incoming`/
-                // `publish_account_incoming_backup` (etc), and those
-                // concurrent publishes' self-echoes could race each other
-                // and clobber one another's local write. Processing each
+                // relay tasks all racing to process it), and possibly again
+                // after a reconnect if it hadn't been fully processed yet —
+                // each redundant delivery used to independently re-run
+                // `add_incoming`/`publish_account_incoming_backup` (etc), and
+                // those concurrent publishes' self-echoes could race each
+                // other and clobber one another's local write. Processing
+                // each
                 // event id once closes that whole class of race at the
                 // source.
                 continue;
             }
+            bump_local_watermark(storage_dir, event.created_at.as_secs() as i64, |s| {
+                &mut s.friend_events_since
+            });
         }
         if let Watch::Group(group_id) = matched {
             let group_id = group_id.clone();
@@ -1643,6 +1665,9 @@ async fn listen_for_friend_events(
                 if !mark_event_seen(event.id) {
                     continue;
                 }
+                bump_local_watermark(storage_dir, event.created_at.as_secs() as i64, |s| {
+                    &mut s.friend_events_since
+                });
                 if sink
                     .add(FriendEvent {
                         kind,
@@ -1705,6 +1730,9 @@ async fn listen_for_friend_events(
                         if !mark_event_seen(event.id) {
                             continue;
                         }
+                        bump_local_watermark(storage_dir, event.created_at.as_secs() as i64, |s| {
+                            &mut s.friend_events_since
+                        });
                         // Same reasoning as the non-ratchet message path
                         // below: persist the thread's active flag before
                         // Dart re-queries the Talk-tab list.
@@ -1753,6 +1781,9 @@ async fn listen_for_friend_events(
                     if !mark_event_seen(event.id) {
                         continue;
                     }
+                    bump_local_watermark(storage_dir, event.created_at.as_secs() as i64, |s| {
+                        &mut s.friend_events_since
+                    });
                     if sink
                         .add(FriendEvent {
                             kind: kind.to_string(),
@@ -1786,6 +1817,9 @@ async fn listen_for_friend_events(
             if !mark_event_seen(event.id) {
                 continue;
             }
+            bump_local_watermark(storage_dir, event.created_at.as_secs() as i64, |s| {
+                &mut s.friend_events_since
+            });
             // Still blocked: the message is now saved to local history (so
             // it's there once unblocked) but held — [chat::load_chat_history]
             // and [chat::has_chat_history] filter out held messages while
