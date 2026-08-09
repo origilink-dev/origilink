@@ -7,7 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:origilink/l10n/app_localizations.dart';
 import 'package:origilink/screens/login.dart';
 import 'package:origilink/screens/logout.dart' show seedStorageKey;
-import 'package:origilink/src/rust/api/public_chat.dart' as public_chat_api;
+import 'package:origilink/src/rust/api/global_chat.dart' as global_chat_api;
 import 'package:origilink/src/rust/api/relay.dart' as relay_api;
 import 'package:origilink/widgets/link_preview_card.dart';
 
@@ -21,7 +21,7 @@ class _WaColors {
 }
 
 /// A NIP-28 channel's message timeline: an initial page loads on open, a
-/// live subscription (`public_chat.rs`'s `subscribeChannelMessages`) then
+/// live subscription (`global_chat.rs`'s `subscribeChannelMessages`) then
 /// streams anything sent after that point — same shape as 1:1/group chat's
 /// `messageEvents`, just scoped to one channel instead of every friend —
 /// so there's no manual refresh button needed. Scrolling up past what's
@@ -29,20 +29,20 @@ class _WaColors {
 /// `_loadOlderMessages`. Visually matches `chat_thread.dart`'s 1:1 thread
 /// (wallpaper, bubble shapes/colors, composer bar) so Public Chat doesn't
 /// look like a different app bolted on.
-class PublicChatThreadScreen extends StatefulWidget {
-  const PublicChatThreadScreen({super.key, required this.channel});
+class GlobalChatThreadScreen extends StatefulWidget {
+  const GlobalChatThreadScreen({super.key, required this.channel});
 
-  final public_chat_api.PublicChannel channel;
+  final global_chat_api.GlobalChannel channel;
 
   @override
-  State<PublicChatThreadScreen> createState() => _PublicChatThreadScreenState();
+  State<GlobalChatThreadScreen> createState() => _GlobalChatThreadScreenState();
 }
 
-class _PublicChatThreadScreenState extends State<PublicChatThreadScreen> {
+class _GlobalChatThreadScreenState extends State<GlobalChatThreadScreen> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
-  List<public_chat_api.PublicChannelMessage> _messages = [];
-  Map<String, public_chat_api.PublicProfile> _profiles = {};
+  List<global_chat_api.GlobalChannelMessage> _messages = [];
+  Map<String, global_chat_api.GlobalChatProfile> _profiles = {};
   final _seenMessageIds = <String>{};
   String? _myPubkey;
   List<String> _relayUrls = [];
@@ -50,7 +50,7 @@ class _PublicChatThreadScreenState extends State<PublicChatThreadScreen> {
   bool _loadingOlder = false;
   bool _hasMoreOlder = true;
   bool _sending = false;
-  StreamSubscription<public_chat_api.PublicChannelMessage>? _liveSub;
+  StreamSubscription<global_chat_api.GlobalChannelMessage>? _liveSub;
 
   @override
   void initState() {
@@ -91,11 +91,11 @@ class _PublicChatThreadScreenState extends State<PublicChatThreadScreen> {
     final mnemonic = await secureStorage.read(key: seedStorageKey);
     final relayUrls = await _loadRelayUrls();
     final results = await Future.wait([
-      public_chat_api.loadChannelMessages(relayUrls: relayUrls, channelId: widget.channel.id, before: null),
-      if (mnemonic != null) public_chat_api.publicChatIdentityPubkey(mnemonic: mnemonic),
+      global_chat_api.loadChannelMessages(relayUrls: relayUrls, channelId: widget.channel.id, before: null),
+      if (mnemonic != null) global_chat_api.globalChatIdentityPubkey(mnemonic: mnemonic),
     ]);
     if (!mounted) return;
-    final messages = results[0] as List<public_chat_api.PublicChannelMessage>;
+    final messages = results[0] as List<global_chat_api.GlobalChannelMessage>;
     _seenMessageIds
       ..clear()
       ..addAll(messages.map((m) => m.id));
@@ -116,7 +116,7 @@ class _PublicChatThreadScreenState extends State<PublicChatThreadScreen> {
     if (_messages.isEmpty) return;
     setState(() => _loadingOlder = true);
     final oldest = _messages.first;
-    final older = await public_chat_api.loadChannelMessages(
+    final older = await global_chat_api.loadChannelMessages(
       relayUrls: _relayUrls,
       channelId: widget.channel.id,
       before: oldest.createdAt,
@@ -134,10 +134,10 @@ class _PublicChatThreadScreenState extends State<PublicChatThreadScreen> {
   /// Sender display names/avatars are a nice-to-have, not blocking —
   /// fetched after the messages themselves render so a slow/unreachable
   /// relay for kind-0 metadata never delays showing the conversation.
-  Future<void> _loadProfilesFor(List<public_chat_api.PublicChannelMessage> messages) async {
+  Future<void> _loadProfilesFor(List<global_chat_api.GlobalChannelMessage> messages) async {
     final missing = messages.map((m) => m.senderPubkey).where((pk) => !_profiles.containsKey(pk)).toSet().toList();
     if (missing.isEmpty) return;
-    final profiles = await public_chat_api.loadProfiles(relayUrls: _relayUrls, pubkeys: missing);
+    final profiles = await global_chat_api.loadProfiles(relayUrls: _relayUrls, pubkeys: missing);
     if (!mounted || profiles.isEmpty) return;
     setState(() => _profiles = {..._profiles, for (final p in profiles) p.pubkey: p});
   }
@@ -148,7 +148,7 @@ class _PublicChatThreadScreenState extends State<PublicChatThreadScreen> {
   /// with whatever page was just fetched.
   void _subscribeLive() {
     _liveSub?.cancel();
-    _liveSub = public_chat_api
+    _liveSub = global_chat_api
         .subscribeChannelMessages(relayUrls: _relayUrls, channelId: widget.channel.id)
         .listen((message) {
           if (!_seenMessageIds.add(message.id)) return;
@@ -164,7 +164,7 @@ class _PublicChatThreadScreenState extends State<PublicChatThreadScreen> {
     const secureStorage = FlutterSecureStorage();
     final mnemonic = await secureStorage.read(key: seedStorageKey);
     if (mnemonic != null) {
-      await public_chat_api.sendChannelMessage(
+      await global_chat_api.sendChannelMessage(
         mnemonic: mnemonic,
         relayUrls: _relayUrls,
         channelId: widget.channel.id,
@@ -276,13 +276,13 @@ class _ChannelMessageBubble extends StatelessWidget {
     required this.formatTime,
   });
 
-  final public_chat_api.PublicChannelMessage message;
+  final global_chat_api.GlobalChannelMessage message;
   final bool isMine;
 
   /// This sender's NIP-01 profile, when `load_profiles` found one — null
   /// falls back to a truncated pubkey and a generic person icon, same as
   /// before profile lookup existed.
-  final public_chat_api.PublicProfile? profile;
+  final global_chat_api.GlobalChatProfile? profile;
   final String Function(int) formatTime;
 
   @override

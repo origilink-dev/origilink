@@ -8,11 +8,11 @@ import 'api/attachment.dart';
 import 'api/chat.dart';
 import 'api/config.dart';
 import 'api/friends.dart';
+import 'api/global_chat.dart';
 import 'api/groups.dart';
 import 'api/invites.dart';
 import 'api/keys.dart';
 import 'api/link_preview.dart';
-import 'api/public_chat.dart';
 import 'api/ratchet.dart';
 import 'api/relay.dart';
 import 'api/sync.dart';
@@ -43,8 +43,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
-  RustStreamSink<PublicChannelMessage>
-  dco_decode_StreamSink_public_channel_message_Sse(dynamic raw);
+  RustStreamSink<GlobalChannelMessage>
+  dco_decode_StreamSink_global_channel_message_Sse(dynamic raw);
 
   @protected
   String dco_decode_String(dynamic raw);
@@ -113,6 +113,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   FriendEvent dco_decode_friend_event(dynamic raw);
 
   @protected
+  GlobalChannel dco_decode_global_channel(dynamic raw);
+
+  @protected
+  GlobalChannelMessage dco_decode_global_channel_message(dynamic raw);
+
+  @protected
+  GlobalChatProfile dco_decode_global_chat_profile(dynamic raw);
+
+  @protected
   Group dco_decode_group(dynamic raw);
 
   @protected
@@ -152,6 +161,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<FriendBackupEntry> dco_decode_list_friend_backup_entry(dynamic raw);
 
   @protected
+  List<GlobalChannel> dco_decode_list_global_channel(dynamic raw);
+
+  @protected
+  List<GlobalChannelMessage> dco_decode_list_global_channel_message(
+    dynamic raw,
+  );
+
+  @protected
+  List<GlobalChatProfile> dco_decode_list_global_chat_profile(dynamic raw);
+
+  @protected
   List<Group> dco_decode_list_group(dynamic raw);
 
   @protected
@@ -173,17 +193,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<PriorIdentity> dco_decode_list_prior_identity(dynamic raw);
-
-  @protected
-  List<PublicChannel> dco_decode_list_public_channel(dynamic raw);
-
-  @protected
-  List<PublicChannelMessage> dco_decode_list_public_channel_message(
-    dynamic raw,
-  );
-
-  @protected
-  List<PublicProfile> dco_decode_list_public_profile(dynamic raw);
 
   @protected
   List<RatchetChatMessage> dco_decode_list_ratchet_chat_message(dynamic raw);
@@ -228,15 +237,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PriorIdentity dco_decode_prior_identity(dynamic raw);
-
-  @protected
-  PublicChannel dco_decode_public_channel(dynamic raw);
-
-  @protected
-  PublicChannelMessage dco_decode_public_channel_message(dynamic raw);
-
-  @protected
-  PublicProfile dco_decode_public_profile(dynamic raw);
 
   @protected
   RatchetChatMessage dco_decode_ratchet_chat_message(dynamic raw);
@@ -289,8 +289,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
-  RustStreamSink<PublicChannelMessage>
-  sse_decode_StreamSink_public_channel_message_Sse(
+  RustStreamSink<GlobalChannelMessage>
+  sse_decode_StreamSink_global_channel_message_Sse(
     SseDeserializer deserializer,
   );
 
@@ -377,6 +377,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   FriendEvent sse_decode_friend_event(SseDeserializer deserializer);
 
   @protected
+  GlobalChannel sse_decode_global_channel(SseDeserializer deserializer);
+
+  @protected
+  GlobalChannelMessage sse_decode_global_channel_message(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  GlobalChatProfile sse_decode_global_chat_profile(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   Group sse_decode_group(SseDeserializer deserializer);
 
   @protected
@@ -420,6 +433,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<GlobalChannel> sse_decode_list_global_channel(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<GlobalChannelMessage> sse_decode_list_global_channel_message(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<GlobalChatProfile> sse_decode_list_global_chat_profile(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<Group> sse_decode_list_group(SseDeserializer deserializer);
 
   @protected
@@ -443,21 +471,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<PriorIdentity> sse_decode_list_prior_identity(
-    SseDeserializer deserializer,
-  );
-
-  @protected
-  List<PublicChannel> sse_decode_list_public_channel(
-    SseDeserializer deserializer,
-  );
-
-  @protected
-  List<PublicChannelMessage> sse_decode_list_public_channel_message(
-    SseDeserializer deserializer,
-  );
-
-  @protected
-  List<PublicProfile> sse_decode_list_public_profile(
     SseDeserializer deserializer,
   );
 
@@ -520,17 +533,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PriorIdentity sse_decode_prior_identity(SseDeserializer deserializer);
 
   @protected
-  PublicChannel sse_decode_public_channel(SseDeserializer deserializer);
-
-  @protected
-  PublicChannelMessage sse_decode_public_channel_message(
-    SseDeserializer deserializer,
-  );
-
-  @protected
-  PublicProfile sse_decode_public_profile(SseDeserializer deserializer);
-
-  @protected
   RatchetChatMessage sse_decode_ratchet_chat_message(
     SseDeserializer deserializer,
   );
@@ -590,8 +592,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
-  void sse_encode_StreamSink_public_channel_message_Sse(
-    RustStreamSink<PublicChannelMessage> self,
+  void sse_encode_StreamSink_global_channel_message_Sse(
+    RustStreamSink<GlobalChannelMessage> self,
     SseSerializer serializer,
   );
 
@@ -695,6 +697,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_friend_event(FriendEvent self, SseSerializer serializer);
 
   @protected
+  void sse_encode_global_channel(GlobalChannel self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_global_channel_message(
+    GlobalChannelMessage self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_global_chat_profile(
+    GlobalChatProfile self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_group(Group self, SseSerializer serializer);
 
   @protected
@@ -749,6 +766,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_global_channel(
+    List<GlobalChannel> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_global_channel_message(
+    List<GlobalChannelMessage> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_global_chat_profile(
+    List<GlobalChatProfile> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_group(List<Group> self, SseSerializer serializer);
 
   @protected
@@ -781,24 +816,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_prior_identity(
     List<PriorIdentity> self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void sse_encode_list_public_channel(
-    List<PublicChannel> self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void sse_encode_list_public_channel_message(
-    List<PublicChannelMessage> self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void sse_encode_list_public_profile(
-    List<PublicProfile> self,
     SseSerializer serializer,
   );
 
@@ -876,18 +893,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_prior_identity(PriorIdentity self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_public_channel(PublicChannel self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_public_channel_message(
-    PublicChannelMessage self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void sse_encode_public_profile(PublicProfile self, SseSerializer serializer);
 
   @protected
   void sse_encode_ratchet_chat_message(

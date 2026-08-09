@@ -9,10 +9,10 @@ use sha2::{Digest, Sha256};
 /// this large can never collide with one.
 const UID_ACCOUNT_INDEX: u32 = 0x7FFF_FFFE;
 
-/// Reserved NIP-06 account index for [derive_public_chat_keys]. Distinct
+/// Reserved NIP-06 account index for [derive_global_chat_keys]. Distinct
 /// from both `UID_ACCOUNT_INDEX` and the sequential per-contact indices, so
 /// it can never collide with either.
-const PUBLIC_CHAT_ACCOUNT_INDEX: u32 = 0x7FFF_FFFD;
+const GLOBAL_CHAT_ACCOUNT_INDEX: u32 = 0x7FFF_FFFD;
 
 /// Generates a new 12-word BIP-39 seed phrase. The caller is responsible for
 /// persisting it (e.g. via platform secure storage) — this function is pure
@@ -64,18 +64,18 @@ pub(crate) fn derive_uid(mnemonic: &str) -> Result<String, String> {
     Ok(digest.iter().map(|b| format!("{:02x}", b)).collect())
 }
 
-/// Derives this account's dedicated Public Chat identity — a single key
+/// Derives this account's dedicated Global Chat identity — a single key
 /// pair reused across every channel/message, so other participants can
 /// recognize the same poster across channels, but deliberately distinct
-/// from `derive_keys`'s core identity (account 0). Public Chat posts are
+/// from `derive_keys`'s core identity (account 0). Global Chat posts are
 /// broadcast in the clear to public relays, so signing them with the core
 /// identity would let anyone linking that pubkey to the self-addressed
 /// account-backup events (profile/relays/friends, see `sync.rs`) correlate
 /// a public post with the private backup data — the same leak-containment
 /// reasoning as [derive_contact_keys], just with one fixed index instead
 /// of one per relationship.
-pub(crate) fn derive_public_chat_keys(mnemonic: &str) -> Result<Keys, String> {
-    derive_contact_keys(mnemonic, PUBLIC_CHAT_ACCOUNT_INDEX)
+pub(crate) fn derive_global_chat_keys(mnemonic: &str) -> Result<Keys, String> {
+    derive_contact_keys(mnemonic, GLOBAL_CHAT_ACCOUNT_INDEX)
 }
 
 /// Dart-callable wrapper around [derive_uid] — lets the profile screen show
@@ -148,19 +148,19 @@ mod tests {
     }
 
     #[test]
-    fn derive_public_chat_keys_is_deterministic() {
-        let a = derive_public_chat_keys(TEST_MNEMONIC).unwrap();
-        let b = derive_public_chat_keys(TEST_MNEMONIC).unwrap();
+    fn derive_global_chat_keys_is_deterministic() {
+        let a = derive_global_chat_keys(TEST_MNEMONIC).unwrap();
+        let b = derive_global_chat_keys(TEST_MNEMONIC).unwrap();
         assert_eq!(a.public_key(), b.public_key());
     }
 
     #[test]
-    fn derive_public_chat_keys_differ_from_core_and_contact_keys() {
-        let public_chat = derive_public_chat_keys(TEST_MNEMONIC).unwrap();
+    fn derive_global_chat_keys_differ_from_core_and_contact_keys() {
+        let global_chat = derive_global_chat_keys(TEST_MNEMONIC).unwrap();
         let core = derive_keys(TEST_MNEMONIC).unwrap();
         let contact = derive_contact_keys(TEST_MNEMONIC, 0).unwrap();
-        assert_ne!(public_chat.public_key(), core.public_key());
-        assert_ne!(public_chat.public_key(), contact.public_key());
+        assert_ne!(global_chat.public_key(), core.public_key());
+        assert_ne!(global_chat.public_key(), contact.public_key());
     }
 
     #[test]

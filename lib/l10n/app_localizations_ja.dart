@@ -258,10 +258,36 @@ class AppLocalizationsJa extends AppLocalizations {
   String get navTalk => 'トーク';
 
   @override
-  String get navPublicChat => 'パブリックチャット';
+  String get navTimeline => 'タイムライン';
 
   @override
   String get comingSoon => 'Coming soon';
+
+  @override
+  String get privateModeLabel => 'プライベート';
+
+  @override
+  String get globalModeLabel => 'グローバル';
+
+  @override
+  String get globalProfileSetupTitle => 'グローバルプロフィール';
+
+  @override
+  String get globalProfileSetupBody =>
+      'グローバルチャットはネットワーク上の誰でも見られる場所です。友達限定のプライベートなアカウントとは別のアイデンティティなので、グローバルへの投稿がプライベート側と結び付けられることはありません。';
+
+  @override
+  String get globalProfileSetupSkip => '後で設定する';
+
+  @override
+  String get globalProfileSetupCreate => 'グローバルプロフィールを作成';
+
+  @override
+  String get globalProfileRequiredTitle => 'グローバルプロフィールが必要です';
+
+  @override
+  String get globalProfileRequiredBody =>
+      'グローバルチャットを使うには、先にグローバルプロフィールを作成してください。';
 
   @override
   String get newChannelTitle => '新しいチャンネル';

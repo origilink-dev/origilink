@@ -13,7 +13,7 @@ import 'package:origilink/src/rust/api/link_preview.dart' as link_preview_api;
 /// Previews are cached process-wide by URL so scrolling a bubble in and out
 /// of view (which recreates this widget) doesn't refetch every time. Shared
 /// between 1:1/group chat (`chat_thread.dart`) and public channels
-/// (`public_chat_thread.dart`), since both render plain-text message bodies
+/// (`global_chat_thread.dart`), since both render plain-text message bodies
 /// that may contain a link.
 final _urlPattern = RegExp(r'https?://[^\s]+');
 

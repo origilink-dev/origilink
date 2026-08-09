@@ -261,10 +261,36 @@ class AppLocalizationsEn extends AppLocalizations {
   String get navTalk => 'Talk';
 
   @override
-  String get navPublicChat => 'Public Chat';
+  String get navTimeline => 'Timeline';
 
   @override
   String get comingSoon => 'Coming soon';
+
+  @override
+  String get privateModeLabel => 'Private';
+
+  @override
+  String get globalModeLabel => 'Global';
+
+  @override
+  String get globalProfileSetupTitle => 'Global Profile';
+
+  @override
+  String get globalProfileSetupBody =>
+      'Global Chat is open to anyone on the network — this identity is separate from your private, friends-only account, so a Global post can never be linked back to it.';
+
+  @override
+  String get globalProfileSetupSkip => 'Skip for now';
+
+  @override
+  String get globalProfileSetupCreate => 'Create Global Profile';
+
+  @override
+  String get globalProfileRequiredTitle => 'Global Profile required';
+
+  @override
+  String get globalProfileRequiredBody =>
+      'Set up a Global Profile first to use Global Chat.';
 
   @override
   String get newChannelTitle => 'New channel';

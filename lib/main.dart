@@ -7,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:origilink/l10n/app_localizations.dart';
 import 'package:origilink/screens/auth_choice.dart';
+import 'package:origilink/screens/global_profile_setup.dart';
 import 'package:origilink/screens/home.dart';
 import 'package:origilink/screens/login.dart';
 import 'package:origilink/screens/logout.dart' show seedStorageKey;
@@ -263,27 +264,35 @@ class _OrigilinkAppState extends State<OrigilinkApp> {
                   mnemonic: mnemonic,
                   onContinue: () {
                     Navigator.of(context).push(
-                      PageRouteBuilder(
-                        pageBuilder: (_, _, _) => SetupCompleteScreen(
-                          displayName: profile.displayName,
+                      MaterialPageRoute(
+                        builder: (_) => GlobalProfileSetupScreen(
                           onDone: () {
-                            Navigator.of(context).pushAndRemoveUntil(
-                              MaterialPageRoute(
-                                builder: (_) => Builder(
-                                  builder: (context) => HomeScreen(
-                                    profile: profile,
-                                    onSelectLanguage: _selectLocale,
-                                    onLocaleSynced: _applySyncedLocale,
-                                    onLogout: () => _logout(context),
-                                  ),
+                            Navigator.of(context).push(
+                              PageRouteBuilder(
+                                pageBuilder: (_, _, _) => SetupCompleteScreen(
+                                  displayName: profile.displayName,
+                                  onDone: () {
+                                    Navigator.of(context).pushAndRemoveUntil(
+                                      MaterialPageRoute(
+                                        builder: (_) => Builder(
+                                          builder: (context) => HomeScreen(
+                                            profile: profile,
+                                            onSelectLanguage: _selectLocale,
+                                            onLocaleSynced: _applySyncedLocale,
+                                            onLogout: () => _logout(context),
+                                          ),
+                                        ),
+                                      ),
+                                      (route) => false,
+                                    );
+                                  },
                                 ),
+                                transitionsBuilder: (_, animation, _, child) =>
+                                    FadeTransition(opacity: animation, child: child),
                               ),
-                              (route) => false,
                             );
                           },
                         ),
-                        transitionsBuilder: (_, animation, _, child) =>
-                            FadeTransition(opacity: animation, child: child),
                       ),
                     );
                   },

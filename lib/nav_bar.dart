@@ -3,7 +3,9 @@ import 'package:origilink/l10n/app_localizations.dart';
 import 'package:origilink/screens/login.dart';
 
 /// Bottom navigation bar for the home screen: Profile & Friends, Talk, and
-/// Public Chat.
+/// Timeline. Private/Global Chat are no longer separate tabs — each lives
+/// as a toggle inside the Profile & Friends and Talk tabs themselves (see
+/// `home.dart`).
 class OrigilinkNavBar extends StatelessWidget {
   const OrigilinkNavBar({
     super.key,
@@ -60,7 +62,7 @@ class OrigilinkNavBar extends StatelessWidget {
             1,
             badgeCount: talkUnreadCount,
           ),
-          _navItem(Icons.forum_outlined, Icons.forum, l10n.navPublicChat, 2),
+          _navItem(Icons.dynamic_feed_outlined, Icons.dynamic_feed, l10n.navTimeline, 2),
         ],
       ),
     );

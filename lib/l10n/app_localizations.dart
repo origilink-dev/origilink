@@ -554,17 +554,65 @@ abstract class AppLocalizations {
   /// **'Talk'**
   String get navTalk;
 
-  /// No description provided for @navPublicChat.
+  /// No description provided for @navTimeline.
   ///
   /// In en, this message translates to:
-  /// **'Public Chat'**
-  String get navPublicChat;
+  /// **'Timeline'**
+  String get navTimeline;
 
   /// No description provided for @comingSoon.
   ///
   /// In en, this message translates to:
   /// **'Coming soon'**
   String get comingSoon;
+
+  /// No description provided for @privateModeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Private'**
+  String get privateModeLabel;
+
+  /// No description provided for @globalModeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Global'**
+  String get globalModeLabel;
+
+  /// No description provided for @globalProfileSetupTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Global Profile'**
+  String get globalProfileSetupTitle;
+
+  /// No description provided for @globalProfileSetupBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Global Chat is open to anyone on the network — this identity is separate from your private, friends-only account, so a Global post can never be linked back to it.'**
+  String get globalProfileSetupBody;
+
+  /// No description provided for @globalProfileSetupSkip.
+  ///
+  /// In en, this message translates to:
+  /// **'Skip for now'**
+  String get globalProfileSetupSkip;
+
+  /// No description provided for @globalProfileSetupCreate.
+  ///
+  /// In en, this message translates to:
+  /// **'Create Global Profile'**
+  String get globalProfileSetupCreate;
+
+  /// No description provided for @globalProfileRequiredTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Global Profile required'**
+  String get globalProfileRequiredTitle;
+
+  /// No description provided for @globalProfileRequiredBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Set up a Global Profile first to use Global Chat.'**
+  String get globalProfileRequiredBody;
 
   /// No description provided for @newChannelTitle.
   ///

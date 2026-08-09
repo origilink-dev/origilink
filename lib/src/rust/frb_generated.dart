@@ -8,11 +8,11 @@ import 'api/attachment.dart';
 import 'api/chat.dart';
 import 'api/config.dart';
 import 'api/friends.dart';
+import 'api/global_chat.dart';
 import 'api/groups.dart';
 import 'api/invites.dart';
 import 'api/keys.dart';
 import 'api/link_preview.dart';
-import 'api/public_chat.dart';
 import 'api/ratchet.dart';
 import 'api/relay.dart';
 import 'api/sync.dart';
@@ -78,7 +78,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0-beta.4';
 
   @override
-  int get rustContentHash => 519016352;
+  int get rustContentHash => 1467276728;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -153,7 +153,7 @@ abstract class RustLibApi extends BaseApi {
     required String friendPubkey,
   });
 
-  Future<String> crateApiPublicChatCreateChannel({
+  Future<String> crateApiGlobalChatCreateChannel({
     required String mnemonic,
     required List<String> relayUrls,
     required String name,
@@ -282,7 +282,13 @@ abstract class RustLibApi extends BaseApi {
 
   Future<String> crateApiKeysGetAccountUid({required String mnemonic});
 
+  Future<String> crateApiGlobalChatGlobalChatIdentityPubkey({
+    required String mnemonic,
+  });
+
   Future<GroupMember> crateApiGroupsGroupMemberDefault();
+
+  Future<bool> crateApiGlobalChatHasGlobalProfile({required String storageDir});
 
   Future<bool> crateApiChatHasMoreChatHistory({
     required String storageDir,
@@ -332,7 +338,7 @@ abstract class RustLibApi extends BaseApi {
     required String storageDir,
   });
 
-  Future<List<PublicChannel>> crateApiPublicChatListChannels({
+  Future<List<GlobalChannel>> crateApiGlobalChatListChannels({
     required List<String> relayUrls,
   });
 
@@ -340,7 +346,7 @@ abstract class RustLibApi extends BaseApi {
 
   Future<Account?> crateApiAccountLoadAccount({required String storageDir});
 
-  Future<List<PublicChannelMessage>> crateApiPublicChatLoadChannelMessages({
+  Future<List<GlobalChannelMessage>> crateApiGlobalChatLoadChannelMessages({
     required List<String> relayUrls,
     required String channelId,
     PlatformInt64? before,
@@ -368,7 +374,7 @@ abstract class RustLibApi extends BaseApi {
     required String storageDir,
   });
 
-  Future<List<PublicProfile>> crateApiPublicChatLoadProfiles({
+  Future<List<GlobalChatProfile>> crateApiGlobalChatLoadProfiles({
     required List<String> relayUrls,
     required List<String> pubkeys,
   });
@@ -406,10 +412,6 @@ abstract class RustLibApi extends BaseApi {
 
   Future<InviteQrPayload> crateApiSyncParseInviteQrPayload({
     required String data,
-  });
-
-  Future<String> crateApiPublicChatPublicChatIdentityPubkey({
-    required String mnemonic,
   });
 
   Future<void> crateApiSyncPublishAccountAvatarBackup({
@@ -474,6 +476,14 @@ abstract class RustLibApi extends BaseApi {
     required List<String> relayUrls,
     required List<String> relays,
     required PlatformInt64 updatedAt,
+  });
+
+  Future<void> crateApiGlobalChatPublishGlobalProfile({
+    required String mnemonic,
+    required String storageDir,
+    required List<String> relayUrls,
+    required String name,
+    required String about,
   });
 
   Future<void> crateApiSyncPublishProfileUpdateToFriends({
@@ -557,7 +567,7 @@ abstract class RustLibApi extends BaseApi {
     required String defaultUrl,
   });
 
-  Future<void> crateApiPublicChatSendChannelMessage({
+  Future<void> crateApiGlobalChatSendChannelMessage({
     required String mnemonic,
     required List<String> relayUrls,
     required String channelId,
@@ -624,7 +634,7 @@ abstract class RustLibApi extends BaseApi {
     required bool isFavorite,
   });
 
-  Stream<PublicChannelMessage> crateApiPublicChatSubscribeChannelMessages({
+  Stream<GlobalChannelMessage> crateApiGlobalChatSubscribeChannelMessages({
     required List<String> relayUrls,
     required String channelId,
   });
@@ -1074,7 +1084,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<String> crateApiPublicChatCreateChannel({
+  Future<String> crateApiGlobalChatCreateChannel({
     required String mnemonic,
     required List<String> relayUrls,
     required String name,
@@ -1099,14 +1109,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_String,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublicChatCreateChannelConstMeta,
+        constMeta: kCrateApiGlobalChatCreateChannelConstMeta,
         argValues: [mnemonic, relayUrls, name, about],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPublicChatCreateChannelConstMeta =>
+  TaskConstMeta get kCrateApiGlobalChatCreateChannelConstMeta =>
       const TaskConstMeta(
         debugName: "create_channel",
         argNames: ["mnemonic", "relayUrls", "name", "about"],
@@ -1954,6 +1964,39 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "get_account_uid", argNames: ["mnemonic"]);
 
   @override
+  Future<String> crateApiGlobalChatGlobalChatIdentityPubkey({
+    required String mnemonic,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(mnemonic, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 35,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiGlobalChatGlobalChatIdentityPubkeyConstMeta,
+        argValues: [mnemonic],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGlobalChatGlobalChatIdentityPubkeyConstMeta =>
+      const TaskConstMeta(
+        debugName: "global_chat_identity_pubkey",
+        argNames: ["mnemonic"],
+      );
+
+  @override
   Future<GroupMember> crateApiGroupsGroupMemberDefault() {
     return handler.executeNormal(
       NormalTask(
@@ -1962,7 +2005,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 35,
+            funcId: 36,
             port: port_,
           );
         },
@@ -1981,6 +2024,39 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "group_member_default", argNames: []);
 
   @override
+  Future<bool> crateApiGlobalChatHasGlobalProfile({
+    required String storageDir,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(storageDir, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 37,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bool,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiGlobalChatHasGlobalProfileConstMeta,
+        argValues: [storageDir],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGlobalChatHasGlobalProfileConstMeta =>
+      const TaskConstMeta(
+        debugName: "has_global_profile",
+        argNames: ["storageDir"],
+      );
+
+  @override
   Future<bool> crateApiChatHasMoreChatHistory({
     required String storageDir,
     required String friendPubkey,
@@ -1994,7 +2070,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 36,
+            funcId: 38,
             port: port_,
           );
         },
@@ -2033,7 +2109,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 37,
+            funcId: 39,
             port: port_,
           );
         },
@@ -2069,7 +2145,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 38,
+            funcId: 40,
             port: port_,
           );
         },
@@ -2099,7 +2175,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 39,
+            funcId: 41,
             port: port_,
           );
         },
@@ -2131,7 +2207,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 40,
+            funcId: 42,
             port: port_,
           );
         },
@@ -2166,7 +2242,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 41,
+            funcId: 43,
             port: port_,
           );
         },
@@ -2204,7 +2280,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 42,
+            funcId: 44,
             port: port_,
           );
         },
@@ -2233,7 +2309,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 43,
+            funcId: 45,
             port: port_,
           );
         },
@@ -2265,7 +2341,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 44,
+            funcId: 46,
             port: port_,
           );
         },
@@ -2298,7 +2374,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 45,
+            funcId: 47,
             port: port_,
           );
         },
@@ -2320,7 +2396,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<List<PublicChannel>> crateApiPublicChatListChannels({
+  Future<List<GlobalChannel>> crateApiGlobalChatListChannels({
     required List<String> relayUrls,
   }) {
     return handler.executeNormal(
@@ -2331,22 +2407,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 46,
+            funcId: 48,
             port: port_,
           );
         },
         codec: SseCodec(
-          decodeSuccessData: sse_decode_list_public_channel,
+          decodeSuccessData: sse_decode_list_global_channel,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiPublicChatListChannelsConstMeta,
+        constMeta: kCrateApiGlobalChatListChannelsConstMeta,
         argValues: [relayUrls],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPublicChatListChannelsConstMeta =>
+  TaskConstMeta get kCrateApiGlobalChatListChannelsConstMeta =>
       const TaskConstMeta(debugName: "list_channels", argNames: ["relayUrls"]);
 
   @override
@@ -2361,7 +2437,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 47,
+            funcId: 49,
             port: port_,
           );
         },
@@ -2389,7 +2465,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 48,
+            funcId: 50,
             port: port_,
           );
         },
@@ -2408,7 +2484,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "load_account", argNames: ["storageDir"]);
 
   @override
-  Future<List<PublicChannelMessage>> crateApiPublicChatLoadChannelMessages({
+  Future<List<GlobalChannelMessage>> crateApiGlobalChatLoadChannelMessages({
     required List<String> relayUrls,
     required String channelId,
     PlatformInt64? before,
@@ -2423,22 +2499,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 49,
+            funcId: 51,
             port: port_,
           );
         },
         codec: SseCodec(
-          decodeSuccessData: sse_decode_list_public_channel_message,
+          decodeSuccessData: sse_decode_list_global_channel_message,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiPublicChatLoadChannelMessagesConstMeta,
+        constMeta: kCrateApiGlobalChatLoadChannelMessagesConstMeta,
         argValues: [relayUrls, channelId, before],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPublicChatLoadChannelMessagesConstMeta =>
+  TaskConstMeta get kCrateApiGlobalChatLoadChannelMessagesConstMeta =>
       const TaskConstMeta(
         debugName: "load_channel_messages",
         argNames: ["relayUrls", "channelId", "before"],
@@ -2460,7 +2536,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 50,
+            funcId: 52,
             port: port_,
           );
         },
@@ -2491,7 +2567,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 51,
+            funcId: 53,
             port: port_,
           );
         },
@@ -2521,7 +2597,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 52,
+            funcId: 54,
             port: port_,
           );
         },
@@ -2555,7 +2631,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 53,
+            funcId: 55,
             port: port_,
           );
         },
@@ -2586,7 +2662,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 54,
+            funcId: 56,
             port: port_,
           );
         },
@@ -2616,7 +2692,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 55,
+            funcId: 57,
             port: port_,
           );
         },
@@ -2638,7 +2714,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<List<PublicProfile>> crateApiPublicChatLoadProfiles({
+  Future<List<GlobalChatProfile>> crateApiGlobalChatLoadProfiles({
     required List<String> relayUrls,
     required List<String> pubkeys,
   }) {
@@ -2651,22 +2727,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 56,
+            funcId: 58,
             port: port_,
           );
         },
         codec: SseCodec(
-          decodeSuccessData: sse_decode_list_public_profile,
+          decodeSuccessData: sse_decode_list_global_chat_profile,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiPublicChatLoadProfilesConstMeta,
+        constMeta: kCrateApiGlobalChatLoadProfilesConstMeta,
         argValues: [relayUrls, pubkeys],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPublicChatLoadProfilesConstMeta =>
+  TaskConstMeta get kCrateApiGlobalChatLoadProfilesConstMeta =>
       const TaskConstMeta(
         debugName: "load_profiles",
         argNames: ["relayUrls", "pubkeys"],
@@ -2688,7 +2764,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 57,
+            funcId: 59,
             port: port_,
           );
         },
@@ -2719,7 +2795,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 58,
+            funcId: 60,
             port: port_,
           );
         },
@@ -2757,7 +2833,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 59,
+            funcId: 61,
             port: port_,
           );
         },
@@ -2795,7 +2871,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 60,
+            funcId: 62,
             port: port_,
           );
         },
@@ -2830,7 +2906,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 61,
+            funcId: 63,
             port: port_,
           );
         },
@@ -2865,7 +2941,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 62,
+            funcId: 64,
             port: port_,
           );
         },
@@ -2894,7 +2970,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 63,
+            funcId: 65,
             port: port_,
           );
         },
@@ -2924,7 +3000,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 64,
+            funcId: 66,
             port: port_,
           );
         },
@@ -2946,39 +3022,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<String> crateApiPublicChatPublicChatIdentityPubkey({
-    required String mnemonic,
-  }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(mnemonic, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 65,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_String,
-          decodeErrorData: sse_decode_String,
-        ),
-        constMeta: kCrateApiPublicChatPublicChatIdentityPubkeyConstMeta,
-        argValues: [mnemonic],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiPublicChatPublicChatIdentityPubkeyConstMeta =>
-      const TaskConstMeta(
-        debugName: "public_chat_identity_pubkey",
-        argNames: ["mnemonic"],
-      );
-
-  @override
   Future<void> crateApiSyncPublishAccountAvatarBackup({
     required String mnemonic,
     required List<String> relayUrls,
@@ -2996,7 +3039,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 66,
+            funcId: 67,
             port: port_,
           );
         },
@@ -3037,7 +3080,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 67,
+            funcId: 68,
             port: port_,
           );
         },
@@ -3082,7 +3125,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 68,
+            funcId: 69,
             port: port_,
           );
         },
@@ -3121,7 +3164,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 69,
+            funcId: 70,
             port: port_,
           );
         },
@@ -3160,7 +3203,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 70,
+            funcId: 71,
             port: port_,
           );
         },
@@ -3199,7 +3242,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 71,
+            funcId: 72,
             port: port_,
           );
         },
@@ -3238,7 +3281,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 72,
+            funcId: 73,
             port: port_,
           );
         },
@@ -3277,7 +3320,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 73,
+            funcId: 74,
             port: port_,
           );
         },
@@ -3316,7 +3359,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 74,
+            funcId: 75,
             port: port_,
           );
         },
@@ -3335,6 +3378,47 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(
         debugName: "publish_account_relays_backup",
         argNames: ["mnemonic", "relayUrls", "relays", "updatedAt"],
+      );
+
+  @override
+  Future<void> crateApiGlobalChatPublishGlobalProfile({
+    required String mnemonic,
+    required String storageDir,
+    required List<String> relayUrls,
+    required String name,
+    required String about,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(mnemonic, serializer);
+          sse_encode_String(storageDir, serializer);
+          sse_encode_list_String(relayUrls, serializer);
+          sse_encode_String(name, serializer);
+          sse_encode_String(about, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 76,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiGlobalChatPublishGlobalProfileConstMeta,
+        argValues: [mnemonic, storageDir, relayUrls, name, about],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGlobalChatPublishGlobalProfileConstMeta =>
+      const TaskConstMeta(
+        debugName: "publish_global_profile",
+        argNames: ["mnemonic", "storageDir", "relayUrls", "name", "about"],
       );
 
   @override
@@ -3357,7 +3441,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 75,
+            funcId: 77,
             port: port_,
           );
         },
@@ -3404,7 +3488,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 76,
+            funcId: 78,
             port: port_,
           );
         },
@@ -3443,7 +3527,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 77,
+            funcId: 79,
             port: port_,
           );
         },
@@ -3478,7 +3562,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 78,
+            funcId: 80,
             port: port_,
           );
         },
@@ -3519,7 +3603,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 79,
+            funcId: 81,
             port: port_,
           );
         },
@@ -3555,7 +3639,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 80,
+            funcId: 82,
             port: port_,
           );
         },
@@ -3587,7 +3671,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 81,
+            funcId: 83,
             port: port_,
           );
         },
@@ -3626,7 +3710,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 82,
+            funcId: 84,
             port: port_,
           );
         },
@@ -3660,7 +3744,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 83,
+            funcId: 85,
             port: port_,
           );
         },
@@ -3695,7 +3779,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 84,
+            funcId: 86,
             port: port_,
           );
         },
@@ -3736,7 +3820,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 85,
+            funcId: 87,
             port: port_,
           );
         },
@@ -3783,7 +3867,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 86,
+            funcId: 88,
             port: port_,
           );
         },
@@ -3817,7 +3901,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 87,
+            funcId: 89,
             port: port_,
           );
         },
@@ -3853,7 +3937,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 88,
+            funcId: 90,
             port: port_,
           );
         },
@@ -3875,7 +3959,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<void> crateApiPublicChatSendChannelMessage({
+  Future<void> crateApiGlobalChatSendChannelMessage({
     required String mnemonic,
     required List<String> relayUrls,
     required String channelId,
@@ -3892,7 +3976,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 89,
+            funcId: 91,
             port: port_,
           );
         },
@@ -3900,14 +3984,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiPublicChatSendChannelMessageConstMeta,
+        constMeta: kCrateApiGlobalChatSendChannelMessageConstMeta,
         argValues: [mnemonic, relayUrls, channelId, content],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiPublicChatSendChannelMessageConstMeta =>
+  TaskConstMeta get kCrateApiGlobalChatSendChannelMessageConstMeta =>
       const TaskConstMeta(
         debugName: "send_channel_message",
         argNames: ["mnemonic", "relayUrls", "channelId", "content"],
@@ -3942,7 +4026,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 90,
+              funcId: 92,
               port: port_,
             );
           },
@@ -4005,7 +4089,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 91,
+            funcId: 93,
             port: port_,
           );
         },
@@ -4050,7 +4134,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 92,
+            funcId: 94,
             port: port_,
           );
         },
@@ -4100,7 +4184,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 93,
+              funcId: 95,
               port: port_,
             );
           },
@@ -4163,7 +4247,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 94,
+            funcId: 96,
             port: port_,
           );
         },
@@ -4212,7 +4296,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 95,
+            funcId: 97,
             port: port_,
           );
         },
@@ -4263,7 +4347,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 96,
+            funcId: 98,
             port: port_,
           );
         },
@@ -4285,11 +4369,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Stream<PublicChannelMessage> crateApiPublicChatSubscribeChannelMessages({
+  Stream<GlobalChannelMessage> crateApiGlobalChatSubscribeChannelMessages({
     required List<String> relayUrls,
     required String channelId,
   }) {
-    final sink = RustStreamSink<PublicChannelMessage>();
+    final sink = RustStreamSink<GlobalChannelMessage>();
     unawaited(
       handler.executeNormal(
         NormalTask(
@@ -4297,11 +4381,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             final serializer = SseSerializer(generalizedFrbRustBinding);
             sse_encode_list_String(relayUrls, serializer);
             sse_encode_String(channelId, serializer);
-            sse_encode_StreamSink_public_channel_message_Sse(sink, serializer);
+            sse_encode_StreamSink_global_channel_message_Sse(sink, serializer);
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 97,
+              funcId: 99,
               port: port_,
             );
           },
@@ -4309,7 +4393,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             decodeSuccessData: sse_decode_unit,
             decodeErrorData: null,
           ),
-          constMeta: kCrateApiPublicChatSubscribeChannelMessagesConstMeta,
+          constMeta: kCrateApiGlobalChatSubscribeChannelMessagesConstMeta,
           argValues: [relayUrls, channelId, sink],
           apiImpl: this,
         ),
@@ -4318,7 +4402,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return sink.stream;
   }
 
-  TaskConstMeta get kCrateApiPublicChatSubscribeChannelMessagesConstMeta =>
+  TaskConstMeta get kCrateApiGlobalChatSubscribeChannelMessagesConstMeta =>
       const TaskConstMeta(
         debugName: "subscribe_channel_messages",
         argNames: ["relayUrls", "channelId", "sink"],
@@ -4343,7 +4427,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 98,
+              funcId: 100,
               port: port_,
             );
           },
@@ -4375,7 +4459,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 99,
+            funcId: 101,
             port: port_,
           );
         },
@@ -4407,7 +4491,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 100,
+            funcId: 102,
             port: port_,
           );
         },
@@ -4438,7 +4522,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 101,
+            funcId: 103,
             port: port_,
           );
         },
@@ -4481,8 +4565,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  RustStreamSink<PublicChannelMessage>
-  dco_decode_StreamSink_public_channel_message_Sse(dynamic raw) {
+  RustStreamSink<GlobalChannelMessage>
+  dco_decode_StreamSink_global_channel_message_Sse(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     throw UnimplementedError();
   }
@@ -4702,6 +4786,50 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  GlobalChannel dco_decode_global_channel(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    return GlobalChannel(
+      id: dco_decode_String(arr[0]),
+      name: dco_decode_String(arr[1]),
+      about: dco_decode_String(arr[2]),
+      creatorPubkey: dco_decode_String(arr[3]),
+      createdAt: dco_decode_i_64(arr[4]),
+      isOrigilink: dco_decode_bool(arr[5]),
+    );
+  }
+
+  @protected
+  GlobalChannelMessage dco_decode_global_channel_message(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return GlobalChannelMessage(
+      id: dco_decode_String(arr[0]),
+      channelId: dco_decode_String(arr[1]),
+      senderPubkey: dco_decode_String(arr[2]),
+      content: dco_decode_String(arr[3]),
+      createdAt: dco_decode_i_64(arr[4]),
+    );
+  }
+
+  @protected
+  GlobalChatProfile dco_decode_global_chat_profile(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return GlobalChatProfile(
+      pubkey: dco_decode_String(arr[0]),
+      name: dco_decode_opt_String(arr[1]),
+      picture: dco_decode_opt_String(arr[2]),
+    );
+  }
+
+  @protected
   Group dco_decode_group(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -4848,6 +4976,28 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<GlobalChannel> dco_decode_list_global_channel(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_global_channel).toList();
+  }
+
+  @protected
+  List<GlobalChannelMessage> dco_decode_list_global_channel_message(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_global_channel_message)
+        .toList();
+  }
+
+  @protected
+  List<GlobalChatProfile> dco_decode_list_global_chat_profile(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_global_chat_profile).toList();
+  }
+
+  @protected
   List<Group> dco_decode_list_group(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_group).toList();
@@ -4891,28 +5041,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   List<PriorIdentity> dco_decode_list_prior_identity(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_prior_identity).toList();
-  }
-
-  @protected
-  List<PublicChannel> dco_decode_list_public_channel(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return (raw as List<dynamic>).map(dco_decode_public_channel).toList();
-  }
-
-  @protected
-  List<PublicChannelMessage> dco_decode_list_public_channel_message(
-    dynamic raw,
-  ) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return (raw as List<dynamic>)
-        .map(dco_decode_public_channel_message)
-        .toList();
-  }
-
-  @protected
-  List<PublicProfile> dco_decode_list_public_profile(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return (raw as List<dynamic>).map(dco_decode_public_profile).toList();
   }
 
   @protected
@@ -5017,50 +5145,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return PriorIdentity(
       pubkey: dco_decode_String(arr[0]),
       myAccountIndex: dco_decode_u_32(arr[1]),
-    );
-  }
-
-  @protected
-  PublicChannel dco_decode_public_channel(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    final arr = raw as List<dynamic>;
-    if (arr.length != 6)
-      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
-    return PublicChannel(
-      id: dco_decode_String(arr[0]),
-      name: dco_decode_String(arr[1]),
-      about: dco_decode_String(arr[2]),
-      creatorPubkey: dco_decode_String(arr[3]),
-      createdAt: dco_decode_i_64(arr[4]),
-      isOrigilink: dco_decode_bool(arr[5]),
-    );
-  }
-
-  @protected
-  PublicChannelMessage dco_decode_public_channel_message(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    final arr = raw as List<dynamic>;
-    if (arr.length != 5)
-      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
-    return PublicChannelMessage(
-      id: dco_decode_String(arr[0]),
-      channelId: dco_decode_String(arr[1]),
-      senderPubkey: dco_decode_String(arr[2]),
-      content: dco_decode_String(arr[3]),
-      createdAt: dco_decode_i_64(arr[4]),
-    );
-  }
-
-  @protected
-  PublicProfile dco_decode_public_profile(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    final arr = raw as List<dynamic>;
-    if (arr.length != 3)
-      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
-    return PublicProfile(
-      pubkey: dco_decode_String(arr[0]),
-      name: dco_decode_opt_String(arr[1]),
-      picture: dco_decode_opt_String(arr[2]),
     );
   }
 
@@ -5229,8 +5313,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  RustStreamSink<PublicChannelMessage>
-  sse_decode_StreamSink_public_channel_message_Sse(
+  RustStreamSink<GlobalChannelMessage>
+  sse_decode_StreamSink_global_channel_message_Sse(
     SseDeserializer deserializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -5495,6 +5579,59 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  GlobalChannel sse_decode_global_channel(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_name = sse_decode_String(deserializer);
+    var var_about = sse_decode_String(deserializer);
+    var var_creatorPubkey = sse_decode_String(deserializer);
+    var var_createdAt = sse_decode_i_64(deserializer);
+    var var_isOrigilink = sse_decode_bool(deserializer);
+    return GlobalChannel(
+      id: var_id,
+      name: var_name,
+      about: var_about,
+      creatorPubkey: var_creatorPubkey,
+      createdAt: var_createdAt,
+      isOrigilink: var_isOrigilink,
+    );
+  }
+
+  @protected
+  GlobalChannelMessage sse_decode_global_channel_message(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_channelId = sse_decode_String(deserializer);
+    var var_senderPubkey = sse_decode_String(deserializer);
+    var var_content = sse_decode_String(deserializer);
+    var var_createdAt = sse_decode_i_64(deserializer);
+    return GlobalChannelMessage(
+      id: var_id,
+      channelId: var_channelId,
+      senderPubkey: var_senderPubkey,
+      content: var_content,
+      createdAt: var_createdAt,
+    );
+  }
+
+  @protected
+  GlobalChatProfile sse_decode_global_chat_profile(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_pubkey = sse_decode_String(deserializer);
+    var var_name = sse_decode_opt_String(deserializer);
+    var var_picture = sse_decode_opt_String(deserializer);
+    return GlobalChatProfile(
+      pubkey: var_pubkey,
+      name: var_name,
+      picture: var_picture,
+    );
+  }
+
+  @protected
   Group sse_decode_group(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_id = sse_decode_String(deserializer);
@@ -5696,6 +5833,48 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<GlobalChannel> sse_decode_list_global_channel(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <GlobalChannel>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_global_channel(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<GlobalChannelMessage> sse_decode_list_global_channel_message(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <GlobalChannelMessage>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_global_channel_message(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<GlobalChatProfile> sse_decode_list_global_chat_profile(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <GlobalChatProfile>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_global_chat_profile(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<Group> sse_decode_list_group(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -5776,48 +5955,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <PriorIdentity>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_prior_identity(deserializer));
-    }
-    return ans_;
-  }
-
-  @protected
-  List<PublicChannel> sse_decode_list_public_channel(
-    SseDeserializer deserializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-
-    var len_ = sse_decode_i_32(deserializer);
-    var ans_ = <PublicChannel>[];
-    for (var idx_ = 0; idx_ < len_; ++idx_) {
-      ans_.add(sse_decode_public_channel(deserializer));
-    }
-    return ans_;
-  }
-
-  @protected
-  List<PublicChannelMessage> sse_decode_list_public_channel_message(
-    SseDeserializer deserializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-
-    var len_ = sse_decode_i_32(deserializer);
-    var ans_ = <PublicChannelMessage>[];
-    for (var idx_ = 0; idx_ < len_; ++idx_) {
-      ans_.add(sse_decode_public_channel_message(deserializer));
-    }
-    return ans_;
-  }
-
-  @protected
-  List<PublicProfile> sse_decode_list_public_profile(
-    SseDeserializer deserializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-
-    var len_ = sse_decode_i_32(deserializer);
-    var ans_ = <PublicProfile>[];
-    for (var idx_ = 0; idx_ < len_; ++idx_) {
-      ans_.add(sse_decode_public_profile(deserializer));
     }
     return ans_;
   }
@@ -6001,57 +6138,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return PriorIdentity(
       pubkey: var_pubkey,
       myAccountIndex: var_myAccountIndex,
-    );
-  }
-
-  @protected
-  PublicChannel sse_decode_public_channel(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_id = sse_decode_String(deserializer);
-    var var_name = sse_decode_String(deserializer);
-    var var_about = sse_decode_String(deserializer);
-    var var_creatorPubkey = sse_decode_String(deserializer);
-    var var_createdAt = sse_decode_i_64(deserializer);
-    var var_isOrigilink = sse_decode_bool(deserializer);
-    return PublicChannel(
-      id: var_id,
-      name: var_name,
-      about: var_about,
-      creatorPubkey: var_creatorPubkey,
-      createdAt: var_createdAt,
-      isOrigilink: var_isOrigilink,
-    );
-  }
-
-  @protected
-  PublicChannelMessage sse_decode_public_channel_message(
-    SseDeserializer deserializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_id = sse_decode_String(deserializer);
-    var var_channelId = sse_decode_String(deserializer);
-    var var_senderPubkey = sse_decode_String(deserializer);
-    var var_content = sse_decode_String(deserializer);
-    var var_createdAt = sse_decode_i_64(deserializer);
-    return PublicChannelMessage(
-      id: var_id,
-      channelId: var_channelId,
-      senderPubkey: var_senderPubkey,
-      content: var_content,
-      createdAt: var_createdAt,
-    );
-  }
-
-  @protected
-  PublicProfile sse_decode_public_profile(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_pubkey = sse_decode_String(deserializer);
-    var var_name = sse_decode_opt_String(deserializer);
-    var var_picture = sse_decode_opt_String(deserializer);
-    return PublicProfile(
-      pubkey: var_pubkey,
-      name: var_name,
-      picture: var_picture,
     );
   }
 
@@ -6241,15 +6327,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_StreamSink_public_channel_message_Sse(
-    RustStreamSink<PublicChannelMessage> self,
+  void sse_encode_StreamSink_global_channel_message_Sse(
+    RustStreamSink<GlobalChannelMessage> self,
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(
       self.setupAndSerialize(
         codec: SseCodec(
-          decodeSuccessData: sse_decode_public_channel_message,
+          decodeSuccessData: sse_decode_global_channel_message,
           decodeErrorData: sse_decode_AnyhowException,
         ),
       ),
@@ -6465,6 +6551,41 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_global_channel(GlobalChannel self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.name, serializer);
+    sse_encode_String(self.about, serializer);
+    sse_encode_String(self.creatorPubkey, serializer);
+    sse_encode_i_64(self.createdAt, serializer);
+    sse_encode_bool(self.isOrigilink, serializer);
+  }
+
+  @protected
+  void sse_encode_global_channel_message(
+    GlobalChannelMessage self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.channelId, serializer);
+    sse_encode_String(self.senderPubkey, serializer);
+    sse_encode_String(self.content, serializer);
+    sse_encode_i_64(self.createdAt, serializer);
+  }
+
+  @protected
+  void sse_encode_global_chat_profile(
+    GlobalChatProfile self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.pubkey, serializer);
+    sse_encode_opt_String(self.name, serializer);
+    sse_encode_opt_String(self.picture, serializer);
+  }
+
+  @protected
   void sse_encode_group(Group self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.id, serializer);
@@ -6609,6 +6730,42 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_global_channel(
+    List<GlobalChannel> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_global_channel(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_global_channel_message(
+    List<GlobalChannelMessage> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_global_channel_message(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_global_chat_profile(
+    List<GlobalChatProfile> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_global_chat_profile(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_group(List<Group> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.length, serializer);
@@ -6681,42 +6838,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_prior_identity(item, serializer);
-    }
-  }
-
-  @protected
-  void sse_encode_list_public_channel(
-    List<PublicChannel> self,
-    SseSerializer serializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_i_32(self.length, serializer);
-    for (final item in self) {
-      sse_encode_public_channel(item, serializer);
-    }
-  }
-
-  @protected
-  void sse_encode_list_public_channel_message(
-    List<PublicChannelMessage> self,
-    SseSerializer serializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_i_32(self.length, serializer);
-    for (final item in self) {
-      sse_encode_public_channel_message(item, serializer);
-    }
-  }
-
-  @protected
-  void sse_encode_list_public_profile(
-    List<PublicProfile> self,
-    SseSerializer serializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_i_32(self.length, serializer);
-    for (final item in self) {
-      sse_encode_public_profile(item, serializer);
     }
   }
 
@@ -6888,38 +7009,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.pubkey, serializer);
     sse_encode_u_32(self.myAccountIndex, serializer);
-  }
-
-  @protected
-  void sse_encode_public_channel(PublicChannel self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_String(self.id, serializer);
-    sse_encode_String(self.name, serializer);
-    sse_encode_String(self.about, serializer);
-    sse_encode_String(self.creatorPubkey, serializer);
-    sse_encode_i_64(self.createdAt, serializer);
-    sse_encode_bool(self.isOrigilink, serializer);
-  }
-
-  @protected
-  void sse_encode_public_channel_message(
-    PublicChannelMessage self,
-    SseSerializer serializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_String(self.id, serializer);
-    sse_encode_String(self.channelId, serializer);
-    sse_encode_String(self.senderPubkey, serializer);
-    sse_encode_String(self.content, serializer);
-    sse_encode_i_64(self.createdAt, serializer);
-  }
-
-  @protected
-  void sse_encode_public_profile(PublicProfile self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_String(self.pubkey, serializer);
-    sse_encode_opt_String(self.name, serializer);
-    sse_encode_opt_String(self.picture, serializer);
   }
 
   @protected

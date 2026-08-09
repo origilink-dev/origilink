@@ -6,12 +6,12 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `channel_from_creation_event`, `client_tag`, `has_origilink_client_tag`, `profile_from_metadata_event`
+// These functions are ignored because they are not marked as `pub`: `channel_from_creation_event`, `client_tag`, `global_profile_marker_path`, `has_origilink_client_tag`, `profile_from_metadata_event`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ChannelMetadataContent`, `ProfileMetadataContent`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`
 
 /// Creates a new public channel (NIP-28 kind 40), signed with this
-/// account's dedicated Public Chat identity (see `keys::derive_public_chat_keys`)
+/// account's dedicated Global Chat identity (see `keys::derive_global_chat_keys`)
 /// rather than its core identity — a channel is public by nature and posts
 /// to it shouldn't be linkable to the self-addressed account-backup events
 /// published under the core key. Tagged as an Origilink channel (see module
@@ -21,7 +21,7 @@ Future<String> createChannel({
   required List<String> relayUrls,
   required String name,
   required String about,
-}) => RustLib.instance.api.crateApiPublicChatCreateChannel(
+}) => RustLib.instance.api.crateApiGlobalChatCreateChannel(
   mnemonic: mnemonic,
   relayUrls: relayUrls,
   name: name,
@@ -44,19 +44,19 @@ Future<String> createChannel({
 /// resolves creation events for both the newest channels and whichever
 /// channels that message sample surfaced (which may be much older),
 /// finally ranking by message count with recency as the tiebreak.
-Future<List<PublicChannel>> listChannels({required List<String> relayUrls}) =>
-    RustLib.instance.api.crateApiPublicChatListChannels(relayUrls: relayUrls);
+Future<List<GlobalChannel>> listChannels({required List<String> relayUrls}) =>
+    RustLib.instance.api.crateApiGlobalChatListChannels(relayUrls: relayUrls);
 
 /// Loads up to a page of `channel_id`'s messages, across `relay_urls`.
 /// `before` (when set) pages backward from that Unix timestamp instead of
 /// from "now" — pass the oldest-currently-loaded message's `created_at` to
 /// fetch the next page of history, mirroring `chat.rs`'s `load_older`
 /// pattern so the channel timeline isn't hard-capped at one page forever.
-Future<List<PublicChannelMessage>> loadChannelMessages({
+Future<List<GlobalChannelMessage>> loadChannelMessages({
   required List<String> relayUrls,
   required String channelId,
   PlatformInt64? before,
-}) => RustLib.instance.api.crateApiPublicChatLoadChannelMessages(
+}) => RustLib.instance.api.crateApiGlobalChatLoadChannelMessages(
   relayUrls: relayUrls,
   channelId: channelId,
   before: before,
@@ -68,13 +68,13 @@ Future<List<PublicChannelMessage>> loadChannelMessages({
 /// relay, forward into a shared sink" shape, but far simpler: no
 /// resubscribe/backoff loop, since a channel subscription is cheap to just
 /// re-open by calling this again (the Dart side does, via a fresh
-/// `PublicChatThreadScreen`/key). `since(now)` means this only ever
+/// `GlobalChatThreadScreen`/key). `since(now)` means this only ever
 /// delivers messages newer than the moment it opened — the initial page
 /// from [load_channel_messages] covers everything up to that point.
-Stream<PublicChannelMessage> subscribeChannelMessages({
+Stream<GlobalChannelMessage> subscribeChannelMessages({
   required List<String> relayUrls,
   required String channelId,
-}) => RustLib.instance.api.crateApiPublicChatSubscribeChannelMessages(
+}) => RustLib.instance.api.crateApiGlobalChatSubscribeChannelMessages(
   relayUrls: relayUrls,
   channelId: channelId,
 );
@@ -85,39 +85,71 @@ Stream<PublicChannelMessage> subscribeChannelMessages({
 /// author. Pubkeys with no metadata found (never published one, or it's on
 /// a relay outside `relay_urls`) simply don't appear in the result; callers
 /// fall back to showing the raw pubkey for those.
-Future<List<PublicProfile>> loadProfiles({
+Future<List<GlobalChatProfile>> loadProfiles({
   required List<String> relayUrls,
   required List<String> pubkeys,
-}) => RustLib.instance.api.crateApiPublicChatLoadProfiles(
+}) => RustLib.instance.api.crateApiGlobalChatLoadProfiles(
   relayUrls: relayUrls,
   pubkeys: pubkeys,
 );
 
 /// Posts `content` to `channel_id`, signed with this account's dedicated
-/// Public Chat identity (same reasoning as [create_channel]).
+/// Global Chat identity (same reasoning as [create_channel]).
 Future<void> sendChannelMessage({
   required String mnemonic,
   required List<String> relayUrls,
   required String channelId,
   required String content,
-}) => RustLib.instance.api.crateApiPublicChatSendChannelMessage(
+}) => RustLib.instance.api.crateApiGlobalChatSendChannelMessage(
   mnemonic: mnemonic,
   relayUrls: relayUrls,
   channelId: channelId,
   content: content,
 );
 
-/// Dart-callable accessor for this account's dedicated Public Chat identity
+/// Dart-callable accessor for this account's dedicated Global Chat identity
 /// pubkey (used to tell "my own message" apart from others' in the channel
 /// timeline — mirrors how `account`/`chat` expose the account's own
-/// identity, but scoped to the Public Chat key rather than the core one).
-Future<String> publicChatIdentityPubkey({required String mnemonic}) => RustLib
+/// identity, but scoped to the Global Chat key rather than the core one).
+Future<String> globalChatIdentityPubkey({required String mnemonic}) => RustLib
     .instance
     .api
-    .crateApiPublicChatPublicChatIdentityPubkey(mnemonic: mnemonic);
+    .crateApiGlobalChatGlobalChatIdentityPubkey(mnemonic: mnemonic);
+
+/// Whether this device has ever completed Global Profile setup (as opposed
+/// to skipping it) — a plain local marker file rather than a relay query,
+/// since the point is to gate the *local* redirect-to-setup UX, not to
+/// verify a kind-0 event still exists on some relay. Deliberately not part
+/// of `Account`/its backup: a fresh device restored from the seed phrase
+/// should re-decide (or re-skip) Global Profile setup on its own, the same
+/// way it re-decides relay settings, rather than silently inheriting
+/// whatever the original device chose.
+Future<bool> hasGlobalProfile({required String storageDir}) => RustLib
+    .instance
+    .api
+    .crateApiGlobalChatHasGlobalProfile(storageDir: storageDir);
+
+/// Publishes a NIP-01 profile (kind 0) for this account's dedicated Global
+/// Chat identity — the display name/bio shown next to this account's
+/// channel posts (see `keys::derive_global_chat_keys` for why this is a
+/// separate identity from the core account). Marks Global Profile setup as
+/// completed locally on success (see [has_global_profile]).
+Future<void> publishGlobalProfile({
+  required String mnemonic,
+  required String storageDir,
+  required List<String> relayUrls,
+  required String name,
+  required String about,
+}) => RustLib.instance.api.crateApiGlobalChatPublishGlobalProfile(
+  mnemonic: mnemonic,
+  storageDir: storageDir,
+  relayUrls: relayUrls,
+  name: name,
+  about: about,
+);
 
 /// A NIP-28 channel, as shown in the channel list.
-class PublicChannel {
+class GlobalChannel {
   /// The channel's creation event id — its stable identifier.
   final String id;
   final String name;
@@ -128,7 +160,7 @@ class PublicChannel {
   /// Whether the creation event carried Origilink's `client` tag.
   final bool isOrigilink;
 
-  const PublicChannel({
+  const GlobalChannel({
     required this.id,
     required this.name,
     required this.about,
@@ -149,7 +181,7 @@ class PublicChannel {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is PublicChannel &&
+      other is GlobalChannel &&
           runtimeType == other.runtimeType &&
           id == other.id &&
           name == other.name &&
@@ -160,14 +192,14 @@ class PublicChannel {
 }
 
 /// A single message in a channel's timeline.
-class PublicChannelMessage {
+class GlobalChannelMessage {
   final String id;
   final String channelId;
   final String senderPubkey;
   final String content;
   final PlatformInt64 createdAt;
 
-  const PublicChannelMessage({
+  const GlobalChannelMessage({
     required this.id,
     required this.channelId,
     required this.senderPubkey,
@@ -186,7 +218,7 @@ class PublicChannelMessage {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is PublicChannelMessage &&
+      other is GlobalChannelMessage &&
           runtimeType == other.runtimeType &&
           id == other.id &&
           channelId == other.channelId &&
@@ -195,12 +227,12 @@ class PublicChannelMessage {
           createdAt == other.createdAt;
 }
 
-class PublicProfile {
+class GlobalChatProfile {
   final String pubkey;
   final String? name;
   final String? picture;
 
-  const PublicProfile({required this.pubkey, this.name, this.picture});
+  const GlobalChatProfile({required this.pubkey, this.name, this.picture});
 
   @override
   int get hashCode => pubkey.hashCode ^ name.hashCode ^ picture.hashCode;
@@ -208,7 +240,7 @@ class PublicProfile {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is PublicProfile &&
+      other is GlobalChatProfile &&
           runtimeType == other.runtimeType &&
           pubkey == other.pubkey &&
           name == other.name &&
