@@ -267,6 +267,46 @@ class AppLocalizationsEn extends AppLocalizations {
   String get comingSoon => 'Coming soon';
 
   @override
+  String get newChannelTitle => 'New channel';
+
+  @override
+  String get channelNameLabel => 'Channel name';
+
+  @override
+  String get channelAboutLabel => 'About (optional)';
+
+  @override
+  String get cancelButton => 'Cancel';
+
+  @override
+  String get createButton => 'Create';
+
+  @override
+  String get showAllChannelsTooltip => 'Show all Nostr channels';
+
+  @override
+  String get showOrigilinkChannelsTooltip => 'Show OrigiLink channels only';
+
+  @override
+  String get origilinkChannelsTitle => 'OrigiLink channels';
+
+  @override
+  String get allChannelsTitle => 'All channels';
+
+  @override
+  String get noChannelsYet => 'No channels yet — create one to get started';
+
+  @override
+  String get untitledChannel => 'Untitled channel';
+
+  @override
+  String get typeChannelMessageHint => 'Message this channel';
+
+  @override
+  String get noChannelMessagesYet =>
+      'No messages yet — be the first to say something';
+
+  @override
   String get settingsTitle => 'Settings';
 
   @override

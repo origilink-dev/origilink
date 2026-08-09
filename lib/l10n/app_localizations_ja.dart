@@ -264,6 +264,45 @@ class AppLocalizationsJa extends AppLocalizations {
   String get comingSoon => 'Coming soon';
 
   @override
+  String get newChannelTitle => '新しいチャンネル';
+
+  @override
+  String get channelNameLabel => 'チャンネル名';
+
+  @override
+  String get channelAboutLabel => '説明(任意)';
+
+  @override
+  String get cancelButton => 'キャンセル';
+
+  @override
+  String get createButton => '作成';
+
+  @override
+  String get showAllChannelsTooltip => '全てのNostrチャンネルを表示';
+
+  @override
+  String get showOrigilinkChannelsTooltip => 'OrigiLinkのチャンネルのみ表示';
+
+  @override
+  String get origilinkChannelsTitle => 'OrigiLinkチャンネル';
+
+  @override
+  String get allChannelsTitle => '全てのチャンネル';
+
+  @override
+  String get noChannelsYet => 'まだチャンネルがありません。作成してみましょう';
+
+  @override
+  String get untitledChannel => '無題のチャンネル';
+
+  @override
+  String get typeChannelMessageHint => 'このチャンネルにメッセージを送る';
+
+  @override
+  String get noChannelMessagesYet => 'まだメッセージがありません。最初の投稿をしてみましょう';
+
+  @override
   String get settingsTitle => '設定';
 
   @override

@@ -8,6 +8,7 @@ pub mod groups;
 pub mod invites;
 pub mod keys;
 pub mod link_preview;
+pub mod public_chat;
 pub mod ratchet;
 pub mod relay;
 pub mod requests;

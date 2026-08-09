@@ -15,6 +15,7 @@ import 'api/groups.dart';
 import 'api/invites.dart';
 import 'api/keys.dart';
 import 'api/link_preview.dart';
+import 'api/public_chat.dart';
 import 'api/ratchet.dart';
 import 'api/relay.dart';
 import 'api/sync.dart';
@@ -172,6 +173,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<PriorIdentity> dco_decode_list_prior_identity(dynamic raw);
 
   @protected
+  List<PublicChannel> dco_decode_list_public_channel(dynamic raw);
+
+  @protected
+  List<PublicChannelMessage> dco_decode_list_public_channel_message(
+    dynamic raw,
+  );
+
+  @protected
   List<RatchetChatMessage> dco_decode_list_ratchet_chat_message(dynamic raw);
 
   @protected
@@ -214,6 +223,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PriorIdentity dco_decode_prior_identity(dynamic raw);
+
+  @protected
+  PublicChannel dco_decode_public_channel(dynamic raw);
+
+  @protected
+  PublicChannelMessage dco_decode_public_channel_message(dynamic raw);
 
   @protected
   RatchetChatMessage dco_decode_ratchet_chat_message(dynamic raw);
@@ -418,6 +433,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<PublicChannel> sse_decode_list_public_channel(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<PublicChannelMessage> sse_decode_list_public_channel_message(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<RatchetChatMessage> sse_decode_list_ratchet_chat_message(
     SseDeserializer deserializer,
   );
@@ -474,6 +499,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PriorIdentity sse_decode_prior_identity(SseDeserializer deserializer);
+
+  @protected
+  PublicChannel sse_decode_public_channel(SseDeserializer deserializer);
+
+  @protected
+  PublicChannelMessage sse_decode_public_channel_message(
+    SseDeserializer deserializer,
+  );
 
   @protected
   RatchetChatMessage sse_decode_ratchet_chat_message(
@@ -724,6 +757,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_public_channel(
+    List<PublicChannel> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_public_channel_message(
+    List<PublicChannelMessage> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_ratchet_chat_message(
     List<RatchetChatMessage> self,
     SseSerializer serializer,
@@ -797,6 +842,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_prior_identity(PriorIdentity self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_public_channel(PublicChannel self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_public_channel_message(
+    PublicChannelMessage self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_ratchet_chat_message(

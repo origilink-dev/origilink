@@ -566,6 +566,84 @@ abstract class AppLocalizations {
   /// **'Coming soon'**
   String get comingSoon;
 
+  /// No description provided for @newChannelTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'New channel'**
+  String get newChannelTitle;
+
+  /// No description provided for @channelNameLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Channel name'**
+  String get channelNameLabel;
+
+  /// No description provided for @channelAboutLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'About (optional)'**
+  String get channelAboutLabel;
+
+  /// No description provided for @cancelButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get cancelButton;
+
+  /// No description provided for @createButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Create'**
+  String get createButton;
+
+  /// No description provided for @showAllChannelsTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Show all Nostr channels'**
+  String get showAllChannelsTooltip;
+
+  /// No description provided for @showOrigilinkChannelsTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Show OrigiLink channels only'**
+  String get showOrigilinkChannelsTooltip;
+
+  /// No description provided for @origilinkChannelsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'OrigiLink channels'**
+  String get origilinkChannelsTitle;
+
+  /// No description provided for @allChannelsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'All channels'**
+  String get allChannelsTitle;
+
+  /// No description provided for @noChannelsYet.
+  ///
+  /// In en, this message translates to:
+  /// **'No channels yet — create one to get started'**
+  String get noChannelsYet;
+
+  /// No description provided for @untitledChannel.
+  ///
+  /// In en, this message translates to:
+  /// **'Untitled channel'**
+  String get untitledChannel;
+
+  /// No description provided for @typeChannelMessageHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Message this channel'**
+  String get typeChannelMessageHint;
+
+  /// No description provided for @noChannelMessagesYet.
+  ///
+  /// In en, this message translates to:
+  /// **'No messages yet — be the first to say something'**
+  String get noChannelMessagesYet;
+
   /// No description provided for @settingsTitle.
   ///
   /// In en, this message translates to:
