@@ -54,6 +54,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _selectedIndex = 1;
+  bool _origilinkOnlyChannels = true;
+  final _publicChatKey = GlobalKey<PublicChatListTabState>();
   late account_api.Account _profile = widget.profile;
 
   List<friends_api.Friend> _friends = [];
@@ -499,7 +501,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         unreadCounts: _unreadCounts,
         onUnreadCountsChanged: _refreshUnreadCounts,
       ),
-      const PublicChatListTab(),
+      PublicChatListTab(key: _publicChatKey, origilinkOnly: _origilinkOnlyChannels),
     ];
 
     return Scaffold(
@@ -514,6 +516,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               onCreateGroup: _createGroup,
               pendingRequestCount: _pendingRequestCount,
               isTalkTab: _selectedIndex == 1,
+              isPublicChatTab: _selectedIndex == 2,
+              origilinkOnlyChannels: _origilinkOnlyChannels,
+              onOrigilinkOnlyChannelsChanged: (value) {
+                setState(() => _origilinkOnlyChannels = value);
+              },
+              onCreateChannel: () => _publicChatKey.currentState?.createChannel(),
             ),
             Expanded(child: tabs[_selectedIndex]),
           ],
@@ -540,6 +548,10 @@ class _HomeTopBar extends StatelessWidget {
     required this.onCreateGroup,
     required this.pendingRequestCount,
     required this.isTalkTab,
+    required this.isPublicChatTab,
+    required this.origilinkOnlyChannels,
+    required this.onOrigilinkOnlyChannelsChanged,
+    required this.onCreateChannel,
   });
 
   final VoidCallback onSettingsTap;
@@ -552,6 +564,14 @@ class _HomeTopBar extends StatelessWidget {
   /// opens a menu with talk room / group / friend creation instead of
   /// jumping straight to add-friend.
   final bool isTalkTab;
+
+  /// On the Public Chat tab, this bar also shows the origilink-only/all-channels
+  /// toggle (left side, alongside settings) and the "add friend" icon becomes
+  /// a "new channel" icon instead.
+  final bool isPublicChatTab;
+  final bool origilinkOnlyChannels;
+  final ValueChanged<bool> onOrigilinkOnlyChannelsChanged;
+  final VoidCallback onCreateChannel;
 
   Future<void> _showTalkAddMenu(BuildContext context) async {
     final l10n = AppLocalizations.of(context)!;
@@ -596,28 +616,65 @@ class _HomeTopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // TODO: wire up announcements.
-          _topBarIcon(Icons.notifications_outlined, () {}),
-          const SizedBox(width: 12),
-          if (isTalkTab)
-            _topBarIcon(
-              Icons.add,
-              () => _showTalkAddMenu(context),
-              badgeCount: pendingRequestCount,
+          if (isPublicChatTab)
+            Tooltip(
+              message: origilinkOnlyChannels
+                  ? l10n.showAllChannelsTooltip
+                  : l10n.showOrigilinkChannelsTooltip,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(20),
+                onTap: () => onOrigilinkOnlyChannelsChanged(!origilinkOnlyChannels),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Transform.scale(
+                      scale: 0.75,
+                      alignment: Alignment.centerLeft,
+                      child: Switch.adaptive(
+                        value: origilinkOnlyChannels,
+                        activeThumbColor: OrigilinkColors.primaryDark,
+                        onChanged: onOrigilinkOnlyChannelsChanged,
+                      ),
+                    ),
+                    Text(
+                      origilinkOnlyChannels ? l10n.origilinkChannelsTitle : l10n.allChannelsTitle,
+                      style: const TextStyle(fontSize: 12, color: OrigilinkColors.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
             )
           else
-            _topBarIcon(
-              Icons.person_add_alt_outlined,
-              onAddFriendTap,
-              badgeCount: pendingRequestCount,
-            ),
-          const SizedBox(width: 12),
-          _topBarIcon(Icons.settings_outlined, onSettingsTap),
+            const SizedBox.shrink(),
+          Row(
+            children: [
+              // TODO: wire up announcements.
+              _topBarIcon(Icons.notifications_outlined, () {}),
+              const SizedBox(width: 12),
+              if (isTalkTab)
+                _topBarIcon(
+                  Icons.add,
+                  () => _showTalkAddMenu(context),
+                  badgeCount: pendingRequestCount,
+                )
+              else if (isPublicChatTab)
+                _topBarIcon(Icons.add_comment_outlined, onCreateChannel)
+              else
+                _topBarIcon(
+                  Icons.person_add_alt_outlined,
+                  onAddFriendTap,
+                  badgeCount: pendingRequestCount,
+                ),
+              const SizedBox(width: 12),
+              _topBarIcon(Icons.settings_outlined, onSettingsTap),
+            ],
+          ),
         ],
       ),
     );

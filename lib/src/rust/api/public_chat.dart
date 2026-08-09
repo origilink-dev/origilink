@@ -6,14 +6,16 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `channel_from_creation_event`, `client_tag`, `has_origilink_client_tag`
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ChannelMetadataContent`
+// These functions are ignored because they are not marked as `pub`: `channel_from_creation_event`, `client_tag`, `has_origilink_client_tag`, `profile_from_metadata_event`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ChannelMetadataContent`, `ProfileMetadataContent`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`
 
 /// Creates a new public channel (NIP-28 kind 40), signed with this
-/// account's core identity (the same one used for the relay-hosted account
-/// backup — see `keys::derive_keys`), since a channel is public by nature
-/// and doesn't need a per-relationship unlinkable key. Tagged as an
-/// Origilink channel (see module doc). Returns the new channel's id.
+/// account's dedicated Public Chat identity (see `keys::derive_public_chat_keys`)
+/// rather than its core identity — a channel is public by nature and posts
+/// to it shouldn't be linkable to the self-addressed account-backup events
+/// published under the core key. Tagged as an Origilink channel (see module
+/// doc). Returns the new channel's id.
 Future<String> createChannel({
   required String mnemonic,
   required List<String> relayUrls,
@@ -26,29 +28,73 @@ Future<String> createChannel({
   about: about,
 );
 
-/// Lists public channels visible on `relay_urls`. When `origilink_only` is
-/// true (the default list view), only channels tagged by this app are
-/// returned; otherwise every NIP-28 channel on those relays is included —
-/// see module doc for why this is a UI filter, not a protocol boundary.
-Future<List<PublicChannel>> listChannels({
-  required List<String> relayUrls,
-  required bool origilinkOnly,
-}) => RustLib.instance.api.crateApiPublicChatListChannels(
-  relayUrls: relayUrls,
-  origilinkOnly: origilinkOnly,
-);
+/// Lists every public channel visible on `relay_urls`, most active first —
+/// each result carries `is_origilink` (see module doc) so the Dart side can
+/// filter the "Origilink channels only" vs. "all channels" toggle purely
+/// client-side, without a fresh relay round-trip per toggle flip: the
+/// underlying query here never depended on that flag to begin with, it was
+/// only ever applied to the already-fetched results.
+///
+/// Sorting by raw channel-creation recency alone buries every channel with
+/// real conversation under a constant stream of freshly-created spam
+/// channels (public relays see many of these) — a channel from months ago
+/// with real traffic would never make it into the (necessarily bounded)
+/// creation-event page. So this pulls a batch of *recent messages* first
+/// and uses how many reference each channel as an activity signal, then
+/// resolves creation events for both the newest channels and whichever
+/// channels that message sample surfaced (which may be much older),
+/// finally ranking by message count with recency as the tiebreak.
+Future<List<PublicChannel>> listChannels({required List<String> relayUrls}) =>
+    RustLib.instance.api.crateApiPublicChatListChannels(relayUrls: relayUrls);
 
-/// Loads the most recent messages in `channel_id`, across `relay_urls`.
+/// Loads up to a page of `channel_id`'s messages, across `relay_urls`.
+/// `before` (when set) pages backward from that Unix timestamp instead of
+/// from "now" — pass the oldest-currently-loaded message's `created_at` to
+/// fetch the next page of history, mirroring `chat.rs`'s `load_older`
+/// pattern so the channel timeline isn't hard-capped at one page forever.
 Future<List<PublicChannelMessage>> loadChannelMessages({
   required List<String> relayUrls,
   required String channelId,
+  PlatformInt64? before,
 }) => RustLib.instance.api.crateApiPublicChatLoadChannelMessages(
+  relayUrls: relayUrls,
+  channelId: channelId,
+  before: before,
+);
+
+/// Opens a live subscription on `channel_id` across `relay_urls`, streaming
+/// new messages as they arrive for as long as the returned Dart stream is
+/// listened to — mirrors `sync::subscribe_friend_events`'s "one task per
+/// relay, forward into a shared sink" shape, but far simpler: no
+/// resubscribe/backoff loop, since a channel subscription is cheap to just
+/// re-open by calling this again (the Dart side does, via a fresh
+/// `PublicChatThreadScreen`/key). `since(now)` means this only ever
+/// delivers messages newer than the moment it opened — the initial page
+/// from [load_channel_messages] covers everything up to that point.
+Stream<PublicChannelMessage> subscribeChannelMessages({
+  required List<String> relayUrls,
+  required String channelId,
+}) => RustLib.instance.api.crateApiPublicChatSubscribeChannelMessages(
   relayUrls: relayUrls,
   channelId: channelId,
 );
 
-/// Posts `content` to `channel_id`, signed with this account's core
-/// identity (same reasoning as [create_channel]).
+/// Loads NIP-01 profile metadata (kind 0) for `pubkeys`, across
+/// `relay_urls`. Kind 0 is a "replaceable" event — a pubkey may have many
+/// old copies floating around relays — so this keeps only the newest per
+/// author. Pubkeys with no metadata found (never published one, or it's on
+/// a relay outside `relay_urls`) simply don't appear in the result; callers
+/// fall back to showing the raw pubkey for those.
+Future<List<PublicProfile>> loadProfiles({
+  required List<String> relayUrls,
+  required List<String> pubkeys,
+}) => RustLib.instance.api.crateApiPublicChatLoadProfiles(
+  relayUrls: relayUrls,
+  pubkeys: pubkeys,
+);
+
+/// Posts `content` to `channel_id`, signed with this account's dedicated
+/// Public Chat identity (same reasoning as [create_channel]).
 Future<void> sendChannelMessage({
   required String mnemonic,
   required List<String> relayUrls,
@@ -61,9 +107,10 @@ Future<void> sendChannelMessage({
   content: content,
 );
 
-/// Dart-callable accessor for this account's public identity pubkey (used
-/// to tell "my own message" apart from others' in the channel timeline —
-/// mirrors how `account`/`chat` expose the account's own identity).
+/// Dart-callable accessor for this account's dedicated Public Chat identity
+/// pubkey (used to tell "my own message" apart from others' in the channel
+/// timeline — mirrors how `account`/`chat` expose the account's own
+/// identity, but scoped to the Public Chat key rather than the core one).
 Future<String> publicChatIdentityPubkey({required String mnemonic}) => RustLib
     .instance
     .api
@@ -146,4 +193,24 @@ class PublicChannelMessage {
           senderPubkey == other.senderPubkey &&
           content == other.content &&
           createdAt == other.createdAt;
+}
+
+class PublicProfile {
+  final String pubkey;
+  final String? name;
+  final String? picture;
+
+  const PublicProfile({required this.pubkey, this.name, this.picture});
+
+  @override
+  int get hashCode => pubkey.hashCode ^ name.hashCode ^ picture.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PublicProfile &&
+          runtimeType == other.runtimeType &&
+          pubkey == other.pubkey &&
+          name == other.name &&
+          picture == other.picture;
 }

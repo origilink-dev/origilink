@@ -12,20 +12,33 @@ import 'package:origilink/src/rust/api/relay.dart' as relay_api;
 /// Lists NIP-28 channels visible on the configured relays — everyone on
 /// the same relays can browse and post, no friendship or invite required.
 /// Defaults to showing only channels this app created (tagged with a
-/// `client` tag, see `public_chat.rs`'s module doc) — the toggle in the
-/// top-left switches to every NIP-28 channel on those relays, since a
-/// channel isn't actually walled off from other Nostr clients.
+/// `client` tag, see `public_chat.rs`'s module doc). The origilink-only
+/// vs. all-channels toggle and the "create channel" action live in
+/// `home.dart`'s shared top bar (alongside settings) rather than a
+/// per-tab AppBar, so this widget is controlled from there: `origilinkOnly`
+/// is passed in, and channel creation is triggered via `createChannel()`
+/// through `publicChatListKey`.
 class PublicChatListTab extends StatefulWidget {
-  const PublicChatListTab({super.key});
+  const PublicChatListTab({super.key, required this.origilinkOnly});
+
+  final bool origilinkOnly;
 
   @override
-  State<PublicChatListTab> createState() => _PublicChatListTabState();
+  State<PublicChatListTab> createState() => PublicChatListTabState();
 }
 
-class _PublicChatListTabState extends State<PublicChatListTab> {
-  List<public_chat_api.PublicChannel> _channels = [];
+class PublicChatListTabState extends State<PublicChatListTab> {
+  /// Every channel found on the configured relays, unfiltered — fetched
+  /// once and re-filtered locally by [_visibleChannels] whenever
+  /// `origilinkOnly` flips, since `list_channels` doesn't take that flag
+  /// (see its doc comment): the relay query is identical either way, only
+  /// which of the results get shown differs. Toggling the switch is
+  /// instant with no relay round-trip as a result.
+  List<public_chat_api.PublicChannel> _allChannels = [];
   bool _loading = true;
-  bool _origilinkOnly = true;
+
+  List<public_chat_api.PublicChannel> get _visibleChannels =>
+      widget.origilinkOnly ? _allChannels.where((c) => c.isOrigilink).toList() : _allChannels;
 
   @override
   void initState() {
@@ -41,18 +54,15 @@ class _PublicChatListTabState extends State<PublicChatListTab> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final channels = await public_chat_api.listChannels(
-      relayUrls: await _relayUrls(),
-      origilinkOnly: _origilinkOnly,
-    );
+    final channels = await public_chat_api.listChannels(relayUrls: await _relayUrls());
     if (!mounted) return;
     setState(() {
-      _channels = channels;
+      _allChannels = channels;
       _loading = false;
     });
   }
 
-  Future<void> _createChannel() async {
+  Future<void> createChannel() async {
     final l10n = AppLocalizations.of(context)!;
     final nameController = TextEditingController();
     final aboutController = TextEditingController();
@@ -110,68 +120,101 @@ class _PublicChatListTabState extends State<PublicChatListTab> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return Scaffold(
-      backgroundColor: OrigilinkColors.background,
-      appBar: AppBar(
-        backgroundColor: OrigilinkColors.background,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        // Origilink-only vs. every NIP-28 channel toggle — top-left, per
-        // request, rather than the usual top-right action-icon convention.
-        leading: IconButton(
-          tooltip: _origilinkOnly ? l10n.showAllChannelsTooltip : l10n.showOrigilinkChannelsTooltip,
-          icon: Icon(_origilinkOnly ? Icons.filter_alt : Icons.filter_alt_off),
-          onPressed: () {
-            setState(() => _origilinkOnly = !_origilinkOnly);
-            _load();
-          },
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final visibleChannels = _visibleChannels;
+    if (visibleChannels.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            SizedBox(
+              height: 320,
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.tag,
+                      size: 48,
+                      color: OrigilinkColors.textSecondary.withValues(alpha: 0.5),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      l10n.noChannelsYet,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: OrigilinkColors.textSecondary,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
-        title: Text(_origilinkOnly ? l10n.origilinkChannelsTitle : l10n.allChannelsTitle),
-        actions: [
-          IconButton(icon: const Icon(Icons.add), onPressed: _createChannel),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: _channels.isEmpty
-                  ? ListView(
-                      physics: const AlwaysScrollableScrollPhysics(),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        itemCount: visibleChannels.length,
+        separatorBuilder: (context, index) => const Divider(
+          height: 1,
+          indent: 82,
+          color: Color(0x14000000),
+        ),
+        itemBuilder: (context, index) {
+          final channel = visibleChannels[index];
+          return InkWell(
+            onTap: () => _openChannel(channel),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(
+                children: [
+                  const CircleAvatar(
+                    radius: 28,
+                    backgroundColor: OrigilinkColors.surface,
+                    child: Icon(Icons.tag, color: OrigilinkColors.textSecondary),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        SizedBox(
-                          height: 320,
-                          child: Center(
-                            child: Text(
-                              l10n.noChannelsYet,
-                              style: const TextStyle(color: OrigilinkColors.textSecondary),
-                            ),
+                        Text(
+                          channel.name.isEmpty ? l10n.untitledChannel : channel.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: OrigilinkColors.textPrimary,
                           ),
                         ),
+                        if (channel.about.isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Text(
+                            channel.about,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: OrigilinkColors.textSecondary),
+                          ),
+                        ],
                       ],
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _channels.length,
-                      itemBuilder: (context, index) {
-                        final channel = _channels[index];
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          decoration: BoxDecoration(
-                            color: OrigilinkColors.surface,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: ListTile(
-                            title: Text(
-                              channel.name.isEmpty ? l10n.untitledChannel : channel.name,
-                            ),
-                            subtitle: channel.about.isEmpty ? null : Text(channel.about),
-                            onTap: () => _openChannel(channel),
-                          ),
-                        );
-                      },
                     ),
+                  ),
+                ],
+              ),
             ),
+          );
+        },
+      ),
     );
   }
 }
