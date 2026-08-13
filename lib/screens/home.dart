@@ -500,58 +500,69 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    // index 0 (Home) and index 1 (Talk) each render one of two widgets
-    // depending on _globalMode; index 2 (Timeline) is a standalone
-    // placeholder unaffected by the toggle.
-    final homeTab = _globalMode
-        ? _GlobalProfileTab(
-            key: _globalProfileTabKey,
-            globalPubkey: _globalPubkey,
-            onEditProfile: _openGlobalProfileSetup,
-          )
-        : AccountFriendsTab(
-            profile: _profile,
-            friends: _friends,
-            onEditProfile: _editProfile,
-            onAddFriend: _openAddFriend,
-            onRefreshFriends: _refreshFriends,
-            onToggleFavorite: _toggleFavorite,
-            onBlockFriend: _blockFriend,
-            onUnblockFriend: _unblockFriend,
-            onDeleteFriend: _deleteFriend,
-            onClearChat: _clearChat,
-            onFriendProfileClosed: () {
-              _loadFriends();
-              _loadActiveChatPubkeys();
-            },
-            messageEvents: _friendEventsStream,
-          );
-    final talkTab = _globalMode
-        ? GlobalChatTalkTab(key: _globalChatKey)
-        : ChatListTab(
-            // Only friends with a started (or already-in-progress) chat show
-            // up here — tapping "Talk" on a friend's profile is what starts
-            // one, rather than every friend appearing by default.
-            friends: _friends.where((f) => _activeChatPubkeys.contains(f.pubkey)).toList(),
-            groups: _groups,
-            messageEvents: _friendEventsStream,
-            onToggleFavorite: _toggleFavorite,
-            onBlockFriend: _blockFriend,
-            onUnblockFriend: _unblockFriend,
-            onDeleteFriend: _deleteFriend,
-            onClearChat: _clearChat,
-            onGroupsChanged: () async {
-              await _loadGroups();
-              // A group leave/removal doesn't change *this* device's own group
-              // routing identity, but the roster-change convention already
-              // established in this codebase (see `_createGroup`) rebuilds the
-              // subscription watch list defensively after any roster mutation.
-              _subscribeFriendEvents();
-            },
-            unreadCounts: _unreadCounts,
-            onUnreadCountsChanged: _refreshUnreadCounts,
-          );
-    final tabs = [homeTab, talkTab, const _TimelinePlaceholder()];
+    // Home and Talk each host both their private and Global content
+    // permanently (via IndexedStack below) rather than swapping widgets in
+    // and out of the tree on every toggle/tab change — that used to
+    // dispose+recreate State each time, so the newly-shown tab flashed
+    // empty while its async load was still in flight. Keeping every branch
+    // mounted means a load only ever happens once, up front.
+    final homeStack = IndexedStack(
+      index: _globalMode ? 1 : 0,
+      children: [
+        AccountFriendsTab(
+          profile: _profile,
+          friends: _friends,
+          onEditProfile: _editProfile,
+          onAddFriend: _openAddFriend,
+          onRefreshFriends: _refreshFriends,
+          onToggleFavorite: _toggleFavorite,
+          onBlockFriend: _blockFriend,
+          onUnblockFriend: _unblockFriend,
+          onDeleteFriend: _deleteFriend,
+          onClearChat: _clearChat,
+          onFriendProfileClosed: () {
+            _loadFriends();
+            _loadActiveChatPubkeys();
+          },
+          messageEvents: _friendEventsStream,
+        ),
+        _GlobalProfileTab(
+          key: _globalProfileTabKey,
+          globalPubkey: _globalPubkey,
+          onEditProfile: _openGlobalProfileSetup,
+        ),
+      ],
+    );
+    final talkStack = IndexedStack(
+      index: _globalMode ? 1 : 0,
+      children: [
+        ChatListTab(
+          // Only friends with a started (or already-in-progress) chat show
+          // up here — tapping "Talk" on a friend's profile is what starts
+          // one, rather than every friend appearing by default.
+          friends: _friends.where((f) => _activeChatPubkeys.contains(f.pubkey)).toList(),
+          groups: _groups,
+          messageEvents: _friendEventsStream,
+          onToggleFavorite: _toggleFavorite,
+          onBlockFriend: _blockFriend,
+          onUnblockFriend: _unblockFriend,
+          onDeleteFriend: _deleteFriend,
+          onClearChat: _clearChat,
+          onGroupsChanged: () async {
+            await _loadGroups();
+            // A group leave/removal doesn't change *this* device's own group
+            // routing identity, but the roster-change convention already
+            // established in this codebase (see `_createGroup`) rebuilds the
+            // subscription watch list defensively after any roster mutation.
+            _subscribeFriendEvents();
+          },
+          unreadCounts: _unreadCounts,
+          onUnreadCountsChanged: _refreshUnreadCounts,
+        ),
+        GlobalChatTalkTab(key: _globalChatKey),
+      ],
+    );
+    final tabs = [homeStack, talkStack, const _TimelinePlaceholder()];
 
     return Scaffold(
       backgroundColor: OrigilinkColors.background,
@@ -572,7 +583,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               isGlobalTab: _globalMode && _selectedIndex == 1,
               onAddChannel: () => _addChannel(context),
             ),
-            Expanded(child: tabs[_selectedIndex]),
+            Expanded(child: IndexedStack(index: _selectedIndex, children: tabs)),
           ],
         ),
       ),
