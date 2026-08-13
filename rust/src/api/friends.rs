@@ -231,10 +231,31 @@ pub(crate) fn update_friend_profile(
 }
 
 /// Removes a friend by their contact pubkey (e.g. after they're blocked).
+/// Also deletes their cached avatar file (`friend_avatars/<pubkey>_*`, see
+/// `sync.rs`'s `save_friend_avatar_link`) — otherwise it would sit on disk
+/// forever, never referenced again once the friend entry is gone.
 pub fn remove_friend(storage_dir: String, pubkey: String) -> Result<(), String> {
     let mut friends = load_friends(storage_dir.clone());
     friends.retain(|f| f.pubkey != pubkey);
+    remove_cached_avatar(&storage_dir, &pubkey);
     save_friends_list(&storage_dir, &friends)
+}
+
+/// Deletes any cached avatar file(s) for `pubkey` under
+/// `storage_dir/friend_avatars` — best-effort, since a missing/unreadable
+/// directory just means there was nothing to clean up.
+fn remove_cached_avatar(storage_dir: &str, pubkey: &str) {
+    let dir = Path::new(storage_dir).join("friend_avatars");
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return;
+    };
+    let prefix = format!("{pubkey}_");
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if name.to_string_lossy().starts_with(&prefix) {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
 }
 
 fn blocked_path(storage_dir: &str) -> PathBuf {
