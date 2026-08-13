@@ -829,31 +829,54 @@ class _GlobalProfileTabState extends State<_GlobalProfileTab> {
             ),
             child: Row(
               children: [
-                const CircleAvatar(
-                  radius: 28,
-                  backgroundColor: OrigilinkColors.background,
-                  child: Icon(Icons.public, color: OrigilinkColors.textSecondary),
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: OrigilinkColors.background,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: const Icon(
+                    Icons.public,
+                    size: 32,
+                    color: OrigilinkColors.textSecondary,
+                  ),
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         l10n.globalProfileSetupTitle,
-                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-                      ),
-                      if (widget.globalPubkey != null) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          '${widget.globalPubkey!.substring(0, 16)}…',
-                          style: const TextStyle(color: OrigilinkColors.textSecondary, fontSize: 12),
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: OrigilinkColors.textPrimary,
                         ),
-                      ],
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        widget.globalPubkey != null
+                            ? '${widget.globalPubkey!.substring(0, 16)}…'
+                            : '',
+                        style: const TextStyle(fontSize: 13, color: OrigilinkColors.textSecondary),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ],
                   ),
                 ),
-                IconButton(icon: const Icon(Icons.edit_outlined), onPressed: widget.onEditProfile),
+                IconButton(
+                  onPressed: widget.onEditProfile,
+                  tooltip: l10n.editProfile,
+                  icon: const Icon(
+                    Icons.edit_outlined,
+                    size: 20,
+                    color: OrigilinkColors.textSecondary,
+                  ),
+                ),
               ],
             ),
           ),
