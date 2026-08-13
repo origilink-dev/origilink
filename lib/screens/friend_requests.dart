@@ -71,7 +71,7 @@ class _FriendRequestsScreenState extends State<FriendRequestsScreen> {
         requesterDisplayName: request.displayName,
         requesterStatusMessage: request.statusMessage,
         requesterRelays: request.relays,
-        requesterAvatarBase64: request.avatarBase64,
+        requesterAvatarLink: request.avatarLink,
       );
       if (alreadyFriend && mounted) {
         final l10n = AppLocalizations.of(context)!;

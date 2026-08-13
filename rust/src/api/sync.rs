@@ -1,4 +1,5 @@
 use crate::api::account;
+use crate::api::attachment;
 use crate::api::chat;
 use crate::api::config;
 use crate::api::friends;
@@ -11,7 +12,6 @@ use crate::api::relay;
 use crate::api::requests;
 use crate::frb_generated::StreamSink;
 use crate::relay_pool;
-use base64::Engine;
 use futures_util::future::join_all;
 use nostr::event::{Event, EventBuilder, Kind, Tag};
 use nostr::nips::nip09::EventDeletionRequest;
@@ -128,7 +128,7 @@ struct TextBackupPayload {
 
 #[derive(Serialize, Deserialize)]
 struct AvatarBackupPayload {
-    avatar_base64: String,
+    avatar_link: String,
     updated_at: i64,
 }
 
@@ -213,7 +213,7 @@ pub struct RemoteAccount {
 }
 
 pub struct RemoteAvatar {
-    pub avatar_base64: String,
+    pub avatar_link: String,
     pub updated_at: i64,
 }
 
@@ -311,17 +311,17 @@ pub fn fetch_account_backup(
 
 /// Publishes the account avatar as its own backup slot — call only when
 /// the avatar actually changed, so it isn't re-sent alongside every text
-/// edit.
+/// edit. `avatar_link` is the encrypted link from
+/// `account::upload_account_avatar_link`, not raw image bytes — this slot's
+/// content stays small (a URL + hex key) regardless of avatar size.
 pub fn publish_account_avatar_backup(
     mnemonic: String,
     relay_urls: Vec<String>,
-    avatar_path: String,
+    avatar_link: String,
     updated_at: i64,
 ) -> Result<(), String> {
     let keys = derive_keys(&mnemonic)?;
-    let avatar_base64 =
-        read_avatar_base64(&Some(avatar_path)).ok_or("failed to read avatar file")?;
-    let payload = AvatarBackupPayload { avatar_base64, updated_at };
+    let payload = AvatarBackupPayload { avatar_link, updated_at };
     let plaintext = serde_json::to_string(&payload).map_err(|e| e.to_string())?;
     publish_backup_event(&keys, &relay_urls, ACCOUNT_AVATAR_D_TAG, plaintext, updated_at)
 }
@@ -339,7 +339,7 @@ pub fn fetch_account_avatar_backup(
     let decrypted = nip44::decrypt(keys.secret_key(), &keys.public_key(), &event.content)
         .map_err(|e| e.to_string())?;
     let payload: AvatarBackupPayload = serde_json::from_str(&decrypted).map_err(|e| e.to_string())?;
-    Ok(Some(RemoteAvatar { avatar_base64: payload.avatar_base64, updated_at: payload.updated_at }))
+    Ok(Some(RemoteAvatar { avatar_link: payload.avatar_link, updated_at: payload.updated_at }))
 }
 
 /// Publishes the account's relay list as its own backup slot — so
@@ -632,26 +632,19 @@ struct FriendPayload {
     display_name: String,
     status_message: String,
     relays: Vec<String>,
-    /// The sender's avatar image, base64-encoded, if they have one set.
-    /// Sent as raw bytes (not a URL) since there's no shared hosting —
-    /// each side caches its own local copy on receipt.
+    /// The sender's avatar as a self-contained encrypted link (see
+    /// `attachment::upload_encrypted_link`), if they have one set — a small
+    /// URL + hex key, not the image bytes themselves.
     #[serde(default)]
-    avatar_base64: Option<String>,
+    avatar_link: Option<String>,
     /// When this payload was built — lets the recipient reject a
     /// reordered older event instead of overwriting newer info with it.
     #[serde(default)]
     updated_at: i64,
 }
 
-/// Reads `avatar_path` (if set) and base64-encodes its bytes for inclusion
-/// in a [FriendPayload]. Silently omitted if the file can't be read.
-fn read_avatar_base64(avatar_path: &Option<String>) -> Option<String> {
-    let path = avatar_path.as_ref()?;
-    let bytes = std::fs::read(path).ok()?;
-    Some(base64::engine::general_purpose::STANDARD.encode(bytes))
-}
-
-/// Decodes a base64 avatar payload and caches it to disk under
+/// Downloads and decrypts an [attachment::upload_encrypted_link] avatar
+/// link and caches it to disk under
 /// `storage_dir/friend_avatars/<pubkey>_<content-hash>`, returning the local
 /// path. The hash suffix (rather than a fixed `<pubkey>` path) matters: the
 /// Flutter side displays this via `FileImage(File(path))`, which Flutter's
@@ -661,9 +654,13 @@ fn read_avatar_base64(avatar_path: &Option<String>) -> Option<String> {
 /// differently-hashed files for the same friend are cleaned up so this
 /// doesn't grow unbounded. Silently returns `None` on any failure — avatar
 /// sync is best-effort.
-fn save_friend_avatar(storage_dir: &str, pubkey: &str, avatar_base64: &Option<String>) -> Option<String> {
-    let encoded = avatar_base64.as_ref()?;
-    let bytes = base64::engine::general_purpose::STANDARD.decode(encoded).ok()?;
+async fn save_friend_avatar_link(
+    storage_dir: &str,
+    pubkey: &str,
+    avatar_link: &Option<String>,
+) -> Option<String> {
+    let link = avatar_link.as_ref()?;
+    let bytes = attachment::download_encrypted_link(link).await.ok()?;
     let dir = Path::new(storage_dir).join("friend_avatars");
     std::fs::create_dir_all(&dir).ok()?;
     let hash = hex::encode(Sha256::digest(&bytes));
@@ -695,9 +692,9 @@ pub struct PendingFriendRequest {
     pub display_name: String,
     pub status_message: String,
     pub relays: Vec<String>,
-    /// Base64-encoded avatar image, if the requester has one — passed
-    /// through unchanged so `accept_friend_request` can cache it.
-    pub avatar_base64: Option<String>,
+    /// Encrypted avatar link, if the requester has one — passed through
+    /// unchanged so `accept_friend_request` can download/cache it.
+    pub avatar_link: Option<String>,
 }
 
 /// The data a "my QR" screen encodes: enough for a scanner to send a
@@ -765,7 +762,7 @@ pub fn send_friend_request(
         display_name: my_account.display_name,
         status_message: my_account.status_message,
         relays: my_relays.clone(),
-        avatar_base64: read_avatar_base64(&my_account.avatar_path),
+        avatar_link: my_account.avatar_link.clone(),
         updated_at: now(),
     };
     let plaintext = serde_json::to_string(&payload).map_err(|e| e.to_string())?;
@@ -806,7 +803,7 @@ pub fn load_pending_friend_requests(storage_dir: String) -> Vec<PendingFriendReq
             display_name: r.display_name,
             status_message: r.status_message,
             relays: r.relays,
-            avatar_base64: r.avatar_base64,
+            avatar_link: r.avatar_link,
         })
         .collect()
 }
@@ -828,7 +825,7 @@ pub fn accept_friend_request(
     requester_display_name: String,
     requester_status_message: String,
     requester_relays: Vec<String>,
-    requester_avatar_base64: Option<String>,
+    requester_avatar_link: Option<String>,
 ) -> Result<bool, String> {
     let my_account = account::load_account(storage_dir.clone()).ok_or("no local account")?;
     let my_relays = relay::load_relay_list(storage_dir.clone()).urls;
@@ -842,7 +839,7 @@ pub fn accept_friend_request(
         display_name: my_account.display_name,
         status_message: my_account.status_message,
         relays: my_relays.clone(),
-        avatar_base64: read_avatar_base64(&my_account.avatar_path),
+        avatar_link: my_account.avatar_link.clone(),
         updated_at: now(),
     };
     let plaintext = serde_json::to_string(&payload).map_err(|e| e.to_string())?;
@@ -857,7 +854,11 @@ pub fn accept_friend_request(
     runtime().block_on(publish_to_relays(&requester_relays, &event))?;
 
     invites::record_invite_use(storage_dir.clone(), invite_account_index)?;
-    let avatar_path = save_friend_avatar(&storage_dir, &requester_pubkey, &requester_avatar_base64);
+    let avatar_path = runtime().block_on(save_friend_avatar_link(
+        &storage_dir,
+        &requester_pubkey,
+        &requester_avatar_link,
+    ));
     requests::remove_incoming(&storage_dir, &requester_pubkey)?;
     let merged = friends::add_friend(
         storage_dir.clone(),
@@ -900,15 +901,15 @@ pub fn reject_friend_request(
 /// their contact pubkey, and sent to their last-known relays. Every such
 /// event carries our current relay list too, so friends always pick up
 /// our latest relays as a side effect of any update reaching them — no
-/// separate relay-discovery mechanism needed. `avatar_path` should be
-/// `None` when only the text fields changed, to avoid re-sending the
-/// (much larger) avatar payload on every edit.
+/// separate relay-discovery mechanism needed. `avatar_link` should be
+/// `None` when only the text fields changed, to avoid re-sending it (still
+/// small, but no need) on every edit.
 pub fn publish_profile_update_to_friends(
     mnemonic: String,
     storage_dir: String,
     display_name: String,
     status_message: String,
-    avatar_path: Option<String>,
+    avatar_link: Option<String>,
 ) -> Result<(), String> {
     let my_relays = relay::load_relay_list(storage_dir.clone()).urls;
     let payload = FriendPayload {
@@ -916,7 +917,7 @@ pub fn publish_profile_update_to_friends(
         display_name,
         status_message,
         relays: my_relays,
-        avatar_base64: read_avatar_base64(&avatar_path),
+        avatar_link,
         updated_at: now(),
     };
     let plaintext = serde_json::to_string(&payload).map_err(|e| e.to_string())?;
@@ -1338,12 +1339,14 @@ async fn listen_for_account_sync(
                 let current = account::load_account(storage_dir.to_string());
                 let is_newer = current.as_ref().is_none_or(|a| payload.updated_at > a.updated_at);
                 if is_newer {
-                    let avatar_path = current.and_then(|a| a.avatar_path);
+                    let avatar_path = current.as_ref().and_then(|a| a.avatar_path.clone());
+                    let avatar_link = current.and_then(|a| a.avatar_link);
                     let _ = account::save_account_with_timestamp(
                         storage_dir.to_string(),
                         payload.display_name,
                         payload.status_message,
                         avatar_path,
+                        avatar_link,
                         payload.updated_at,
                     );
                 }
@@ -1359,9 +1362,12 @@ async fn listen_for_account_sync(
                     // back through this same subscription) — never applied.
                     false
                 } else {
-                    let Some(path) =
-                        account::save_account_avatar_base64(storage_dir.to_string(), payload.avatar_base64)
+                    let Some(bytes) =
+                        attachment::download_encrypted_link(&payload.avatar_link).await.ok()
                     else {
+                        continue;
+                    };
+                    let Some(path) = account::write_avatar_bytes(storage_dir, &bytes, "png") else {
                         continue;
                     };
                     if let Some(account) = account::load_account(storage_dir.to_string()) {
@@ -1370,6 +1376,7 @@ async fn listen_for_account_sync(
                             account.display_name,
                             account.status_message,
                             Some(path),
+                            Some(payload.avatar_link.clone()),
                             account.updated_at,
                         );
                     }
@@ -1886,7 +1893,7 @@ async fn listen_for_friend_events(
                     payload.display_name.clone(),
                     payload.status_message.clone(),
                     payload.relays.clone(),
-                    payload.avatar_base64.clone(),
+                    payload.avatar_link.clone(),
                 );
                 publish_account_incoming_backup_async(mnemonic, storage_dir, &my_relays).await;
                 FriendEvent {
@@ -1901,7 +1908,8 @@ async fn listen_for_friend_events(
             }
             Watch::Outgoing(idx) if event.kind == FRIEND_ACCEPT_KIND => {
                 let pubkey = event.pubkey.to_hex();
-                let avatar_path = save_friend_avatar(storage_dir, &pubkey, &payload.avatar_base64);
+                let avatar_path =
+                    save_friend_avatar_link(storage_dir, &pubkey, &payload.avatar_link).await;
                 let merged = friends::add_friend(
                     storage_dir.to_string(),
                     pubkey.clone(),
@@ -1927,7 +1935,7 @@ async fn listen_for_friend_events(
             }
             Watch::Friend(_, friend_pubkey) if event.kind == FRIEND_PROFILE_UPDATE_KIND => {
                 let avatar_path =
-                    save_friend_avatar(storage_dir, friend_pubkey, &payload.avatar_base64);
+                    save_friend_avatar_link(storage_dir, friend_pubkey, &payload.avatar_link).await;
                 let applied = friends::update_friend_profile(
                     storage_dir,
                     friend_pubkey,
@@ -2030,6 +2038,7 @@ mod tests {
             "Alice".to_string(),
             "hi".to_string(),
             None,
+            None,
         )
         .unwrap();
 
@@ -2051,7 +2060,7 @@ mod tests {
     fn invite_qr_payload_differs_per_account_index() {
         let dir = temp_storage_dir("qr-per-index");
         let dir_str = dir.to_string_lossy().to_string();
-        account::save_account(dir_str.clone(), "Bob".to_string(), String::new(), None).unwrap();
+        account::save_account(dir_str.clone(), "Bob".to_string(), String::new(), None, None).unwrap();
 
         let a = parse_invite_qr_payload(
             build_invite_qr_payload(TEST_MNEMONIC.to_string(), dir_str.clone(), 0).unwrap(),

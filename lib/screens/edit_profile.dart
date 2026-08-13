@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:origilink/l10n/app_localizations.dart';
 import 'package:origilink/screens/login.dart';
+import 'package:origilink/screens/logout.dart' show seedStorageKey;
 import 'package:origilink/services/account_sync.dart';
 import 'package:origilink/src/rust/api/account.dart' as account_api;
 
@@ -64,15 +66,40 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         pickedPath: avatarPath,
       );
     }
+    final avatarChanged = avatarPath != widget.profile.avatarPath;
+
+    // Only re-upload (a fresh, undeduplicatable encrypted blob every time)
+    // when the avatar actually changed — otherwise keep reusing the
+    // existing link so friends/backups don't re-fetch it for nothing.
+    var avatarLink = widget.profile.avatarLink;
+    if (avatarChanged) {
+      avatarLink = null;
+      if (avatarPath != null) {
+        const secureStorage = FlutterSecureStorage();
+        final mnemonic = await secureStorage.read(key: seedStorageKey);
+        if (mnemonic != null) {
+          try {
+            avatarLink = await account_api.uploadAccountAvatarLink(
+              mnemonic: mnemonic,
+              storageDir: storageDir.path,
+              avatarPath: avatarPath,
+            );
+          } catch (_) {
+            // Offline or every upload server unreachable — friends/other
+            // devices just won't get the new avatar until the next save.
+          }
+        }
+      }
+    }
 
     await account_api.saveAccount(
       storageDir: storageDir.path,
       displayName: _displayNameController.text.trim(),
       statusMessage: _statusMessageController.text.trim(),
       avatarPath: avatarPath,
+      avatarLink: avatarLink,
     );
     final saved = (await account_api.loadAccount(storageDir: storageDir.path))!;
-    final avatarChanged = avatarPath != widget.profile.avatarPath;
     unawaited(publishAccountBackup(saved));
     if (avatarChanged) unawaited(publishAccountAvatarBackup(saved));
     unawaited(publishProfileUpdateToFriends(saved, avatarChanged: avatarChanged));

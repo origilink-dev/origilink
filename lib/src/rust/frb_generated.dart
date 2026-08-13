@@ -78,7 +78,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0-beta.4';
 
   @override
-  int get rustContentHash => -278550425;
+  int get rustContentHash => -1055507495;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -99,7 +99,7 @@ abstract class RustLibApi extends BaseApi {
     required String requesterDisplayName,
     required String requesterStatusMessage,
     required List<String> requesterRelays,
-    String? requesterAvatarBase64,
+    String? requesterAvatarLink,
   });
 
   Future<bool> crateApiFriendsAddFriend({
@@ -436,7 +436,7 @@ abstract class RustLibApi extends BaseApi {
   Future<void> crateApiSyncPublishAccountAvatarBackup({
     required String mnemonic,
     required List<String> relayUrls,
-    required String avatarPath,
+    required String avatarLink,
     required PlatformInt64 updatedAt,
   });
 
@@ -511,7 +511,7 @@ abstract class RustLibApi extends BaseApi {
     required String storageDir,
     required String displayName,
     required String statusMessage,
-    String? avatarPath,
+    String? avatarLink,
   });
 
   Future<void> crateApiInvitesRecordInviteUse({
@@ -551,6 +551,7 @@ abstract class RustLibApi extends BaseApi {
     required String displayName,
     required String statusMessage,
     String? avatarPath,
+    String? avatarLink,
   });
 
   Future<String?> crateApiAccountSaveAccountAvatar({
@@ -558,9 +559,9 @@ abstract class RustLibApi extends BaseApi {
     required String pickedPath,
   });
 
-  Future<String?> crateApiAccountSaveAccountAvatarBase64({
+  Future<String?> crateApiAccountSaveAccountAvatarLink({
     required String storageDir,
-    required String avatarBase64,
+    required String avatarLink,
   });
 
   Future<void> crateApiAccountSaveAccountWithTimestamp({
@@ -568,6 +569,7 @@ abstract class RustLibApi extends BaseApi {
     required String displayName,
     required String statusMessage,
     String? avatarPath,
+    String? avatarLink,
     required PlatformInt64 updatedAt,
   });
 
@@ -677,6 +679,12 @@ abstract class RustLibApi extends BaseApi {
     required String pubkey,
   });
 
+  Future<String> crateApiAccountUploadAccountAvatarLink({
+    required String mnemonic,
+    required String storageDir,
+    required String avatarPath,
+  });
+
   Future<void> crateApiKeysValidateMnemonic({required String mnemonic});
 }
 
@@ -698,7 +706,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required String requesterDisplayName,
     required String requesterStatusMessage,
     required List<String> requesterRelays,
-    String? requesterAvatarBase64,
+    String? requesterAvatarLink,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -712,7 +720,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(requesterDisplayName, serializer);
           sse_encode_String(requesterStatusMessage, serializer);
           sse_encode_list_String(requesterRelays, serializer);
-          sse_encode_opt_String(requesterAvatarBase64, serializer);
+          sse_encode_opt_String(requesterAvatarLink, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -734,7 +742,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           requesterDisplayName,
           requesterStatusMessage,
           requesterRelays,
-          requesterAvatarBase64,
+          requesterAvatarLink,
         ],
         apiImpl: this,
       ),
@@ -753,7 +761,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           "requesterDisplayName",
           "requesterStatusMessage",
           "requesterRelays",
-          "requesterAvatarBase64",
+          "requesterAvatarLink",
         ],
       );
 
@@ -3188,7 +3196,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Future<void> crateApiSyncPublishAccountAvatarBackup({
     required String mnemonic,
     required List<String> relayUrls,
-    required String avatarPath,
+    required String avatarLink,
     required PlatformInt64 updatedAt,
   }) {
     return handler.executeNormal(
@@ -3197,7 +3205,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(mnemonic, serializer);
           sse_encode_list_String(relayUrls, serializer);
-          sse_encode_String(avatarPath, serializer);
+          sse_encode_String(avatarLink, serializer);
           sse_encode_i_64(updatedAt, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
@@ -3211,7 +3219,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiSyncPublishAccountAvatarBackupConstMeta,
-        argValues: [mnemonic, relayUrls, avatarPath, updatedAt],
+        argValues: [mnemonic, relayUrls, avatarLink, updatedAt],
         apiImpl: this,
       ),
     );
@@ -3220,7 +3228,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiSyncPublishAccountAvatarBackupConstMeta =>
       const TaskConstMeta(
         debugName: "publish_account_avatar_backup",
-        argNames: ["mnemonic", "relayUrls", "avatarPath", "updatedAt"],
+        argNames: ["mnemonic", "relayUrls", "avatarLink", "updatedAt"],
       );
 
   @override
@@ -3599,7 +3607,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required String storageDir,
     required String displayName,
     required String statusMessage,
-    String? avatarPath,
+    String? avatarLink,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -3609,7 +3617,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(storageDir, serializer);
           sse_encode_String(displayName, serializer);
           sse_encode_String(statusMessage, serializer);
-          sse_encode_opt_String(avatarPath, serializer);
+          sse_encode_opt_String(avatarLink, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -3627,7 +3635,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           storageDir,
           displayName,
           statusMessage,
-          avatarPath,
+          avatarLink,
         ],
         apiImpl: this,
       ),
@@ -3642,7 +3650,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           "storageDir",
           "displayName",
           "statusMessage",
-          "avatarPath",
+          "avatarLink",
         ],
       );
 
@@ -3870,6 +3878,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required String displayName,
     required String statusMessage,
     String? avatarPath,
+    String? avatarLink,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -3879,6 +3888,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(displayName, serializer);
           sse_encode_String(statusMessage, serializer);
           sse_encode_opt_String(avatarPath, serializer);
+          sse_encode_opt_String(avatarLink, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -3891,7 +3901,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiAccountSaveAccountConstMeta,
-        argValues: [storageDir, displayName, statusMessage, avatarPath],
+        argValues: [
+          storageDir,
+          displayName,
+          statusMessage,
+          avatarPath,
+          avatarLink,
+        ],
         apiImpl: this,
       ),
     );
@@ -3899,7 +3915,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiAccountSaveAccountConstMeta => const TaskConstMeta(
     debugName: "save_account",
-    argNames: ["storageDir", "displayName", "statusMessage", "avatarPath"],
+    argNames: [
+      "storageDir",
+      "displayName",
+      "statusMessage",
+      "avatarPath",
+      "avatarLink",
+    ],
   );
 
   @override
@@ -3938,16 +3960,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<String?> crateApiAccountSaveAccountAvatarBase64({
+  Future<String?> crateApiAccountSaveAccountAvatarLink({
     required String storageDir,
-    required String avatarBase64,
+    required String avatarLink,
   }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(storageDir, serializer);
-          sse_encode_String(avatarBase64, serializer);
+          sse_encode_String(avatarLink, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -3959,17 +3981,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_opt_String,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiAccountSaveAccountAvatarBase64ConstMeta,
-        argValues: [storageDir, avatarBase64],
+        constMeta: kCrateApiAccountSaveAccountAvatarLinkConstMeta,
+        argValues: [storageDir, avatarLink],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiAccountSaveAccountAvatarBase64ConstMeta =>
+  TaskConstMeta get kCrateApiAccountSaveAccountAvatarLinkConstMeta =>
       const TaskConstMeta(
-        debugName: "save_account_avatar_base64",
-        argNames: ["storageDir", "avatarBase64"],
+        debugName: "save_account_avatar_link",
+        argNames: ["storageDir", "avatarLink"],
       );
 
   @override
@@ -3978,6 +4000,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required String displayName,
     required String statusMessage,
     String? avatarPath,
+    String? avatarLink,
     required PlatformInt64 updatedAt,
   }) {
     return handler.executeNormal(
@@ -3988,6 +4011,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(displayName, serializer);
           sse_encode_String(statusMessage, serializer);
           sse_encode_opt_String(avatarPath, serializer);
+          sse_encode_opt_String(avatarLink, serializer);
           sse_encode_i_64(updatedAt, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
@@ -4006,6 +4030,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           displayName,
           statusMessage,
           avatarPath,
+          avatarLink,
           updatedAt,
         ],
         apiImpl: this,
@@ -4021,6 +4046,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           "displayName",
           "statusMessage",
           "avatarPath",
+          "avatarLink",
           "updatedAt",
         ],
       );
@@ -4720,6 +4746,43 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<String> crateApiAccountUploadAccountAvatarLink({
+    required String mnemonic,
+    required String storageDir,
+    required String avatarPath,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(mnemonic, serializer);
+          sse_encode_String(storageDir, serializer);
+          sse_encode_String(avatarPath, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 108,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiAccountUploadAccountAvatarLinkConstMeta,
+        argValues: [mnemonic, storageDir, avatarPath],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiAccountUploadAccountAvatarLinkConstMeta =>
+      const TaskConstMeta(
+        debugName: "upload_account_avatar_link",
+        argNames: ["mnemonic", "storageDir", "avatarPath"],
+      );
+
+  @override
   Future<void> crateApiKeysValidateMnemonic({required String mnemonic}) {
     return handler.executeNormal(
       NormalTask(
@@ -4729,7 +4792,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 108,
+            funcId: 109,
             port: port_,
           );
         },
@@ -4788,13 +4851,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Account dco_decode_account(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
     return Account(
       displayName: dco_decode_String(arr[0]),
       statusMessage: dco_decode_String(arr[1]),
       avatarPath: dco_decode_opt_String(arr[2]),
-      updatedAt: dco_decode_i_64(arr[3]),
+      avatarLink: dco_decode_opt_String(arr[3]),
+      updatedAt: dco_decode_i_64(arr[4]),
     );
   }
 
@@ -5371,7 +5435,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       displayName: dco_decode_String(arr[3]),
       statusMessage: dco_decode_String(arr[4]),
       relays: dco_decode_list_String(arr[5]),
-      avatarBase64: dco_decode_opt_String(arr[6]),
+      avatarLink: dco_decode_opt_String(arr[6]),
     );
   }
 
@@ -5435,7 +5499,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (arr.length != 2)
       throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
     return RemoteAvatar(
-      avatarBase64: dco_decode_String(arr[0]),
+      avatarLink: dco_decode_String(arr[0]),
       updatedAt: dco_decode_i_64(arr[1]),
     );
   }
@@ -5573,11 +5637,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_displayName = sse_decode_String(deserializer);
     var var_statusMessage = sse_decode_String(deserializer);
     var var_avatarPath = sse_decode_opt_String(deserializer);
+    var var_avatarLink = sse_decode_opt_String(deserializer);
     var var_updatedAt = sse_decode_i_64(deserializer);
     return Account(
       displayName: var_displayName,
       statusMessage: var_statusMessage,
       avatarPath: var_avatarPath,
+      avatarLink: var_avatarLink,
       updatedAt: var_updatedAt,
     );
   }
@@ -6401,7 +6467,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_displayName = sse_decode_String(deserializer);
     var var_statusMessage = sse_decode_String(deserializer);
     var var_relays = sse_decode_list_String(deserializer);
-    var var_avatarBase64 = sse_decode_opt_String(deserializer);
+    var var_avatarLink = sse_decode_opt_String(deserializer);
     return PendingFriendRequest(
       inviteAccountIndex: var_inviteAccountIndex,
       pubkey: var_pubkey,
@@ -6409,7 +6475,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       displayName: var_displayName,
       statusMessage: var_statusMessage,
       relays: var_relays,
-      avatarBase64: var_avatarBase64,
+      avatarLink: var_avatarLink,
     );
   }
 
@@ -6474,12 +6540,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   RemoteAvatar sse_decode_remote_avatar(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_avatarBase64 = sse_decode_String(deserializer);
+    var var_avatarLink = sse_decode_String(deserializer);
     var var_updatedAt = sse_decode_i_64(deserializer);
-    return RemoteAvatar(
-      avatarBase64: var_avatarBase64,
-      updatedAt: var_updatedAt,
-    );
+    return RemoteAvatar(avatarLink: var_avatarLink, updatedAt: var_updatedAt);
   }
 
   @protected
@@ -6638,6 +6701,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.displayName, serializer);
     sse_encode_String(self.statusMessage, serializer);
     sse_encode_opt_String(self.avatarPath, serializer);
+    sse_encode_opt_String(self.avatarLink, serializer);
     sse_encode_i_64(self.updatedAt, serializer);
   }
 
@@ -7327,7 +7391,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.displayName, serializer);
     sse_encode_String(self.statusMessage, serializer);
     sse_encode_list_String(self.relays, serializer);
-    sse_encode_opt_String(self.avatarBase64, serializer);
+    sse_encode_opt_String(self.avatarLink, serializer);
   }
 
   @protected
@@ -7371,7 +7435,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   void sse_encode_remote_avatar(RemoteAvatar self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_String(self.avatarBase64, serializer);
+    sse_encode_String(self.avatarLink, serializer);
     sse_encode_i_64(self.updatedAt, serializer);
   }
 

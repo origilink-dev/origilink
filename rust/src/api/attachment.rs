@@ -320,6 +320,33 @@ pub(crate) async fn upload_plain_bytes(
     Ok(descriptor.url)
 }
 
+/// Encrypts `plaintext` and uploads the ciphertext to `server`, returning a
+/// single self-contained link (`<blossom-url>#<hex key+nonce>`) — the URL
+/// fragment never leaves the device in an HTTP request (only the path is
+/// sent to the server), so this one string is everything a recipient needs
+/// to fetch and decrypt, with nothing else to transmit separately. Signed
+/// with `keys`, which the caller should pick to control what the Blossom
+/// server's `/list/<pubkey>` endpoint (if it has one) can link together —
+/// see `keys::derive_avatar_upload_keys`'s doc for why a dedicated
+/// never-shared key is used for account avatars rather than a per-relationship one.
+pub(crate) async fn upload_encrypted_link(
+    server: &str,
+    plaintext: &[u8],
+    keys: &nostr::Keys,
+) -> Result<String, String> {
+    let (key_and_nonce, ciphertext) = encrypt_attachment_bytes(plaintext);
+    let url = upload_plain_bytes(server, "application/octet-stream", ciphertext, keys).await?;
+    Ok(format!("{url}#{}", hex::encode(key_and_nonce)))
+}
+
+/// Downloads and decrypts a link produced by [upload_encrypted_link].
+pub(crate) async fn download_encrypted_link(link: &str) -> Result<Vec<u8>, String> {
+    let (url, key_hex) = link.split_once('#').ok_or("malformed encrypted link")?;
+    let key_and_nonce = hex::decode(key_hex).map_err(|e| e.to_string())?;
+    let ciphertext = download_ciphertext(url).await?;
+    decrypt_attachment_bytes(&key_and_nonce, &ciphertext)
+}
+
 /// Downloads the ciphertext bytes at `url` — shared by 1:1 and group
 /// attachment downloads.
 pub(crate) async fn download_ciphertext(url: &str) -> Result<Vec<u8>, String> {

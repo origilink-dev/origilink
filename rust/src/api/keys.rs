@@ -14,6 +14,10 @@ const UID_ACCOUNT_INDEX: u32 = 0x7FFF_FFFE;
 /// it can never collide with either.
 const GLOBAL_CHAT_ACCOUNT_INDEX: u32 = 0x7FFF_FFFD;
 
+/// Reserved NIP-06 account index for [derive_avatar_upload_keys]. Distinct
+/// from every other reserved/sequential index, so it can never collide.
+const AVATAR_UPLOAD_ACCOUNT_INDEX: u32 = 0x7FFF_FFFC;
+
 /// Generates a new 12-word BIP-39 seed phrase. The caller is responsible for
 /// persisting it (e.g. via platform secure storage) — this function is pure
 /// generation with no I/O.
@@ -82,6 +86,21 @@ pub(crate) fn derive_global_chat_keys(mnemonic: &str) -> Result<Keys, String> {
 /// the account's own UID (e.g. for the user to compare against a friend's).
 pub fn get_account_uid(mnemonic: String) -> Result<String, String> {
     derive_uid(&mnemonic)
+}
+
+/// Derives a key used only to sign the Blossom upload authorization (kind
+/// 24242) when the account's own (encrypted) avatar is uploaded — never
+/// shared with a friend, another device, or embedded in any event content,
+/// so it never leaves this device except inside that one HTTP request's
+/// `Authorization` header. Deliberately not the core identity (account 0)
+/// or a per-contact key: those get shared (backup events, friend requests),
+/// which would let anyone who ends up with the pubkey associate every past
+/// and future avatar upload signed with it — a stable-but-never-disclosed
+/// key means only the Blossom server operator itself could ever notice
+/// "the same anonymous key re-uploaded a blob," and only if they already
+/// watch that specific pubkey.
+pub(crate) fn derive_avatar_upload_keys(mnemonic: &str) -> Result<Keys, String> {
+    derive_contact_keys(mnemonic, AVATAR_UPLOAD_ACCOUNT_INDEX)
 }
 
 #[cfg(test)]

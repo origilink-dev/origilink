@@ -162,15 +162,17 @@ class _OrigilinkAppState extends State<OrigilinkApp> {
     // restored device picks up everything, not just display name/status.
     // None of these block the restore if they fail or are simply unset.
     String? avatarPath;
+    String? avatarLink;
     try {
       final remoteAvatar = await sync_api.fetchAccountAvatarBackup(
         mnemonic: mnemonic,
         relayUrls: relayUrls,
       );
       if (remoteAvatar != null) {
-        avatarPath = await account_api.saveAccountAvatarBase64(
+        avatarLink = remoteAvatar.avatarLink;
+        avatarPath = await account_api.saveAccountAvatarLink(
           storageDir: storageDir.path,
-          avatarBase64: remoteAvatar.avatarBase64,
+          avatarLink: avatarLink,
         );
       }
     } catch (_) {
@@ -204,6 +206,7 @@ class _OrigilinkAppState extends State<OrigilinkApp> {
       displayName: remote.displayName,
       statusMessage: remote.statusMessage,
       avatarPath: avatarPath,
+      avatarLink: avatarLink,
       updatedAt: remote.updatedAt,
     );
     const secureStorage = FlutterSecureStorage();

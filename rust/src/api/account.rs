@@ -11,6 +11,15 @@ pub struct Account {
     pub status_message: String,
     /// Absolute path to the avatar image file, if the user picked one.
     pub avatar_path: Option<String>,
+    /// A self-contained encrypted link (`<blossom-url>#<hex key+nonce>`,
+    /// see `attachment::upload_encrypted_link`) for the same image
+    /// `avatar_path` points to — computed once per avatar change (via
+    /// [upload_account_avatar_link]) and reused for every friend
+    /// request/accept/profile-update/self-backup instead of re-uploading a
+    /// fresh (undeduplicatable — each upload uses a random key) copy of the
+    /// same bytes every time one of those fires.
+    #[serde(default)]
+    pub avatar_link: Option<String>,
     /// Unix timestamp (seconds) of the last local edit. Used to decide
     /// whether the local copy or the relay-synced backup is newer.
     #[serde(default)]
@@ -38,7 +47,7 @@ fn now() -> i64 {
 /// device's own avatar can change: a local edit ([save_account_avatar]) and
 /// a newer copy pulled from a relay backup ([save_account_avatar_base64],
 /// and `sync.rs`'s live-sync handling of the same backup slot).
-fn write_avatar_bytes(storage_dir: &str, bytes: &[u8], extension: &str) -> Option<String> {
+pub(crate) fn write_avatar_bytes(storage_dir: &str, bytes: &[u8], extension: &str) -> Option<String> {
     let hash = hex::encode(Sha256::digest(bytes));
     let file_name = format!("account_avatar_{hash}.{extension}");
     let dir = Path::new(storage_dir);
@@ -64,11 +73,35 @@ pub fn save_account_avatar(storage_dir: String, picked_path: String) -> Option<S
     write_avatar_bytes(&storage_dir, &bytes, extension)
 }
 
-/// Decodes a base64-encoded avatar pulled from a relay backup and saves it
-/// the same content-hash-suffixed way as a locally-picked one.
-pub fn save_account_avatar_base64(storage_dir: String, avatar_base64: String) -> Option<String> {
-    use base64::Engine as _;
-    let bytes = base64::engine::general_purpose::STANDARD.decode(&avatar_base64).ok()?;
+/// Encrypts the avatar at `avatar_path` and uploads it to the configured
+/// Blossom server, returning a self-contained encrypted link (see
+/// `attachment::upload_encrypted_link`). Call once whenever the avatar
+/// actually changes — the result is meant to be persisted via `save_account`
+/// (`avatar_link`) and then reused as-is by every friend request/accept/
+/// profile-update/self-backup, rather than re-uploading a fresh copy of the
+/// same bytes on each one. Signed with a dedicated per-device key
+/// (`keys::derive_avatar_upload_keys`) never shared with anyone — see that
+/// function's doc for why.
+pub fn upload_account_avatar_link(
+    mnemonic: String,
+    storage_dir: String,
+    avatar_path: String,
+) -> Result<String, String> {
+    let bytes = fs::read(&avatar_path).map_err(|e| e.to_string())?;
+    let keys = crate::api::keys::derive_avatar_upload_keys(&mnemonic)?;
+    let server = crate::api::attachment::load_upload_servers(storage_dir).default_url;
+    crate::api::sync::runtime()
+        .block_on(crate::api::attachment::upload_encrypted_link(&server, &bytes, &keys))
+}
+
+/// Downloads and decrypts an encrypted avatar link (from a friend's
+/// [FriendPayload]-style exchange or this account's own relay-hosted
+/// backup) and caches the plaintext bytes locally, the same
+/// content-hash-suffixed way as a locally-picked avatar.
+pub fn save_account_avatar_link(storage_dir: String, avatar_link: String) -> Option<String> {
+    let bytes = crate::api::sync::runtime()
+        .block_on(crate::api::attachment::download_encrypted_link(&avatar_link))
+        .ok()?;
     write_avatar_bytes(&storage_dir, &bytes, "png")
 }
 
@@ -80,11 +113,13 @@ pub fn save_account(
     display_name: String,
     status_message: String,
     avatar_path: Option<String>,
+    avatar_link: Option<String>,
 ) -> Result<(), String> {
     let account = Account {
         display_name,
         status_message,
         avatar_path,
+        avatar_link,
         updated_at: now(),
     };
     let content = serde_json::to_string_pretty(&account).map_err(|e| e.to_string())?;
@@ -99,12 +134,14 @@ pub fn save_account_with_timestamp(
     display_name: String,
     status_message: String,
     avatar_path: Option<String>,
+    avatar_link: Option<String>,
     updated_at: i64,
 ) -> Result<(), String> {
     let account = Account {
         display_name,
         status_message,
         avatar_path,
+        avatar_link,
         updated_at,
     };
     let content = serde_json::to_string_pretty(&account).map_err(|e| e.to_string())?;

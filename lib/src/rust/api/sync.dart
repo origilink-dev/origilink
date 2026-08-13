@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `bump_local_watermark`, `encrypt_self`, `fetch_latest_backup_event`, `listen_for_account_sync`, `listen_for_friend_events`, `load_sync_state`, `mark_event_seen`, `now`, `publish_account_incoming_backup_async`, `publish_account_incoming_backup`, `publish_account_outgoing_backup_async`, `publish_account_outgoing_backup`, `publish_backup_event_async`, `publish_backup_event`, `publish_to_relays`, `read_avatar_base64`, `run_friend_event_subscription`, `runtime`, `save_friend_avatar`, `save_sync_state`, `subscription_generation`, `sync_state_path`
+// These functions are ignored because they are not marked as `pub`: `bump_local_watermark`, `encrypt_self`, `fetch_latest_backup_event`, `listen_for_account_sync`, `listen_for_friend_events`, `load_sync_state`, `mark_event_seen`, `now`, `publish_account_incoming_backup_async`, `publish_account_incoming_backup`, `publish_account_outgoing_backup_async`, `publish_account_outgoing_backup`, `publish_backup_event_async`, `publish_backup_event`, `publish_to_relays`, `run_friend_event_subscription`, `runtime`, `save_friend_avatar_link`, `save_sync_state`, `subscription_generation`, `sync_state_path`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `AvatarBackupPayload`, `BlockedBackupPayload`, `ChatStartedBackupPayload`, `ConfigBackupPayload`, `FriendPayload`, `FriendsBackupPayload`, `IncomingBackupPayload`, `InvitesBackupPayload`, `OutgoingBackupPayload`, `ReadStateBackupPayload`, `RelaysBackupPayload`, `TextBackupPayload`, `Watch`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`
 
@@ -42,16 +42,18 @@ Future<RemoteAccount?> fetchAccountBackup({
 
 /// Publishes the account avatar as its own backup slot — call only when
 /// the avatar actually changed, so it isn't re-sent alongside every text
-/// edit.
+/// edit. `avatar_link` is the encrypted link from
+/// `account::upload_account_avatar_link`, not raw image bytes — this slot's
+/// content stays small (a URL + hex key) regardless of avatar size.
 Future<void> publishAccountAvatarBackup({
   required String mnemonic,
   required List<String> relayUrls,
-  required String avatarPath,
+  required String avatarLink,
   required PlatformInt64 updatedAt,
 }) => RustLib.instance.api.crateApiSyncPublishAccountAvatarBackup(
   mnemonic: mnemonic,
   relayUrls: relayUrls,
-  avatarPath: avatarPath,
+  avatarLink: avatarLink,
   updatedAt: updatedAt,
 );
 
@@ -262,7 +264,7 @@ Future<bool> acceptFriendRequest({
   required String requesterDisplayName,
   required String requesterStatusMessage,
   required List<String> requesterRelays,
-  String? requesterAvatarBase64,
+  String? requesterAvatarLink,
 }) => RustLib.instance.api.crateApiSyncAcceptFriendRequest(
   mnemonic: mnemonic,
   storageDir: storageDir,
@@ -272,7 +274,7 @@ Future<bool> acceptFriendRequest({
   requesterDisplayName: requesterDisplayName,
   requesterStatusMessage: requesterStatusMessage,
   requesterRelays: requesterRelays,
-  requesterAvatarBase64: requesterAvatarBase64,
+  requesterAvatarLink: requesterAvatarLink,
 );
 
 /// Permanently blocks a requester's contact pubkey so their (rejected)
@@ -294,21 +296,21 @@ Future<void> rejectFriendRequest({
 /// their contact pubkey, and sent to their last-known relays. Every such
 /// event carries our current relay list too, so friends always pick up
 /// our latest relays as a side effect of any update reaching them — no
-/// separate relay-discovery mechanism needed. `avatar_path` should be
-/// `None` when only the text fields changed, to avoid re-sending the
-/// (much larger) avatar payload on every edit.
+/// separate relay-discovery mechanism needed. `avatar_link` should be
+/// `None` when only the text fields changed, to avoid re-sending it (still
+/// small, but no need) on every edit.
 Future<void> publishProfileUpdateToFriends({
   required String mnemonic,
   required String storageDir,
   required String displayName,
   required String statusMessage,
-  String? avatarPath,
+  String? avatarLink,
 }) => RustLib.instance.api.crateApiSyncPublishProfileUpdateToFriends(
   mnemonic: mnemonic,
   storageDir: storageDir,
   displayName: displayName,
   statusMessage: statusMessage,
-  avatarPath: avatarPath,
+  avatarLink: avatarLink,
 );
 
 /// Opens a connection to this account's relays (plus any outstanding
@@ -493,9 +495,9 @@ class PendingFriendRequest {
   final String statusMessage;
   final List<String> relays;
 
-  /// Base64-encoded avatar image, if the requester has one — passed
-  /// through unchanged so `accept_friend_request` can cache it.
-  final String? avatarBase64;
+  /// Encrypted avatar link, if the requester has one — passed through
+  /// unchanged so `accept_friend_request` can download/cache it.
+  final String? avatarLink;
 
   const PendingFriendRequest({
     required this.inviteAccountIndex,
@@ -504,7 +506,7 @@ class PendingFriendRequest {
     required this.displayName,
     required this.statusMessage,
     required this.relays,
-    this.avatarBase64,
+    this.avatarLink,
   });
 
   @override
@@ -515,7 +517,7 @@ class PendingFriendRequest {
       displayName.hashCode ^
       statusMessage.hashCode ^
       relays.hashCode ^
-      avatarBase64.hashCode;
+      avatarLink.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -528,7 +530,7 @@ class PendingFriendRequest {
           displayName == other.displayName &&
           statusMessage == other.statusMessage &&
           relays == other.relays &&
-          avatarBase64 == other.avatarBase64;
+          avatarLink == other.avatarLink;
 }
 
 /// Account text (display name / status) decrypted from a relay-hosted backup.
@@ -558,20 +560,20 @@ class RemoteAccount {
 }
 
 class RemoteAvatar {
-  final String avatarBase64;
+  final String avatarLink;
   final PlatformInt64 updatedAt;
 
-  const RemoteAvatar({required this.avatarBase64, required this.updatedAt});
+  const RemoteAvatar({required this.avatarLink, required this.updatedAt});
 
   @override
-  int get hashCode => avatarBase64.hashCode ^ updatedAt.hashCode;
+  int get hashCode => avatarLink.hashCode ^ updatedAt.hashCode;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is RemoteAvatar &&
           runtimeType == other.runtimeType &&
-          avatarBase64 == other.avatarBase64 &&
+          avatarLink == other.avatarLink &&
           updatedAt == other.updatedAt;
 }
 

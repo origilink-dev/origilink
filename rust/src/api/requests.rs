@@ -80,7 +80,7 @@ pub struct IncomingRequest {
     pub display_name: String,
     pub status_message: String,
     pub relays: Vec<String>,
-    pub avatar_base64: Option<String>,
+    pub avatar_link: Option<String>,
     pub created_at: i64,
 }
 
@@ -110,7 +110,7 @@ pub(crate) fn add_incoming(
     display_name: String,
     status_message: String,
     relays: Vec<String>,
-    avatar_base64: Option<String>,
+    avatar_link: Option<String>,
 ) -> Result<(), String> {
     let mut requests = load_incoming(storage_dir);
     requests.retain(|r| r.pubkey != pubkey);
@@ -121,7 +121,7 @@ pub(crate) fn add_incoming(
         display_name,
         status_message,
         relays,
-        avatar_base64,
+        avatar_link,
         created_at: now(),
     });
     save_incoming(storage_dir, &requests)

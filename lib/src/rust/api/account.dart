@@ -18,14 +18,35 @@ Future<String?> saveAccountAvatar({
   pickedPath: pickedPath,
 );
 
-/// Decodes a base64-encoded avatar pulled from a relay backup and saves it
-/// the same content-hash-suffixed way as a locally-picked one.
-Future<String?> saveAccountAvatarBase64({
+/// Encrypts the avatar at `avatar_path` and uploads it to the configured
+/// Blossom server, returning a self-contained encrypted link (see
+/// `attachment::upload_encrypted_link`). Call once whenever the avatar
+/// actually changes — the result is meant to be persisted via `save_account`
+/// (`avatar_link`) and then reused as-is by every friend request/accept/
+/// profile-update/self-backup, rather than re-uploading a fresh copy of the
+/// same bytes on each one. Signed with a dedicated per-device key
+/// (`keys::derive_avatar_upload_keys`) never shared with anyone — see that
+/// function's doc for why.
+Future<String> uploadAccountAvatarLink({
+  required String mnemonic,
   required String storageDir,
-  required String avatarBase64,
-}) => RustLib.instance.api.crateApiAccountSaveAccountAvatarBase64(
+  required String avatarPath,
+}) => RustLib.instance.api.crateApiAccountUploadAccountAvatarLink(
+  mnemonic: mnemonic,
   storageDir: storageDir,
-  avatarBase64: avatarBase64,
+  avatarPath: avatarPath,
+);
+
+/// Downloads and decrypts an encrypted avatar link (from a friend's
+/// [FriendPayload]-style exchange or this account's own relay-hosted
+/// backup) and caches the plaintext bytes locally, the same
+/// content-hash-suffixed way as a locally-picked avatar.
+Future<String?> saveAccountAvatarLink({
+  required String storageDir,
+  required String avatarLink,
+}) => RustLib.instance.api.crateApiAccountSaveAccountAvatarLink(
+  storageDir: storageDir,
+  avatarLink: avatarLink,
 );
 
 /// Saves the account as JSON under `storage_dir`, stamping `updated_at` with
@@ -36,11 +57,13 @@ Future<void> saveAccount({
   required String displayName,
   required String statusMessage,
   String? avatarPath,
+  String? avatarLink,
 }) => RustLib.instance.api.crateApiAccountSaveAccount(
   storageDir: storageDir,
   displayName: displayName,
   statusMessage: statusMessage,
   avatarPath: avatarPath,
+  avatarLink: avatarLink,
 );
 
 /// Saves the account as JSON under `storage_dir` with an explicit
@@ -51,12 +74,14 @@ Future<void> saveAccountWithTimestamp({
   required String displayName,
   required String statusMessage,
   String? avatarPath,
+  String? avatarLink,
   required PlatformInt64 updatedAt,
 }) => RustLib.instance.api.crateApiAccountSaveAccountWithTimestamp(
   storageDir: storageDir,
   displayName: displayName,
   statusMessage: statusMessage,
   avatarPath: avatarPath,
+  avatarLink: avatarLink,
   updatedAt: updatedAt,
 );
 
@@ -72,6 +97,15 @@ class Account {
   /// Absolute path to the avatar image file, if the user picked one.
   final String? avatarPath;
 
+  /// A self-contained encrypted link (`<blossom-url>#<hex key+nonce>`,
+  /// see `attachment::upload_encrypted_link`) for the same image
+  /// `avatar_path` points to — computed once per avatar change (via
+  /// [upload_account_avatar_link]) and reused for every friend
+  /// request/accept/profile-update/self-backup instead of re-uploading a
+  /// fresh (undeduplicatable — each upload uses a random key) copy of the
+  /// same bytes every time one of those fires.
+  final String? avatarLink;
+
   /// Unix timestamp (seconds) of the last local edit. Used to decide
   /// whether the local copy or the relay-synced backup is newer.
   final PlatformInt64 updatedAt;
@@ -80,6 +114,7 @@ class Account {
     required this.displayName,
     required this.statusMessage,
     this.avatarPath,
+    this.avatarLink,
     required this.updatedAt,
   });
 
@@ -88,6 +123,7 @@ class Account {
       displayName.hashCode ^
       statusMessage.hashCode ^
       avatarPath.hashCode ^
+      avatarLink.hashCode ^
       updatedAt.hashCode;
 
   @override
@@ -98,5 +134,6 @@ class Account {
           displayName == other.displayName &&
           statusMessage == other.statusMessage &&
           avatarPath == other.avatarPath &&
+          avatarLink == other.avatarLink &&
           updatedAt == other.updatedAt;
 }

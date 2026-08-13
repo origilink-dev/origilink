@@ -113,7 +113,7 @@ Future<void> publishProfileUpdateToFriends(
       storageDir: storageDir.path,
       displayName: profile.displayName,
       statusMessage: profile.statusMessage,
-      avatarPath: avatarChanged ? profile.avatarPath : null,
+      avatarLink: avatarChanged ? profile.avatarLink : null,
     );
   } catch (_) {
     // Offline or every relay unreachable — friends just won't see the
@@ -135,8 +135,8 @@ Future<int> pendingFriendRequestCount() async {
 /// re-download it on every unrelated profile edit. Silently does nothing
 /// (no seed, no avatar, or relays unreachable).
 Future<void> publishAccountAvatarBackup(account_api.Account profile) async {
-  final avatarPath = profile.avatarPath;
-  if (avatarPath == null) return;
+  final avatarLink = profile.avatarLink;
+  if (avatarLink == null) return;
   const secureStorage = FlutterSecureStorage();
   final mnemonic = await secureStorage.read(key: seedStorageKey);
   if (mnemonic == null) return;
@@ -147,7 +147,7 @@ Future<void> publishAccountAvatarBackup(account_api.Account profile) async {
     await sync_api.publishAccountAvatarBackup(
       mnemonic: mnemonic,
       relayUrls: relayList.urls,
-      avatarPath: avatarPath,
+      avatarLink: avatarLink,
       updatedAt: profile.updatedAt,
     );
   } catch (_) {
