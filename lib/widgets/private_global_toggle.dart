@@ -17,7 +17,7 @@ class PrivateGlobalToggle extends StatelessWidget {
   });
 
   final bool isGlobal;
-  final ValueChanged<bool> onChanged;
+  final Future<void> Function(bool) onChanged;
 
   /// Pending-notification counts shown as a small red badge on each side —
   /// e.g. unread messages/friend requests on Private, new channel activity

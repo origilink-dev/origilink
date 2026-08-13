@@ -12,6 +12,7 @@
 //! created here is equally visible/joinable from Damus, Amethyst, or any
 //! other NIP-28 client, and vice versa.
 
+use crate::api::attachment::{load_upload_servers, upload_plain_bytes};
 use crate::api::keys::derive_global_chat_keys;
 use crate::api::sync::{publish_to_relays, runtime};
 use crate::frb_generated::StreamSink;
@@ -19,6 +20,8 @@ use futures_util::future::join_all;
 use nostr::event::{Event, EventBuilder, Kind, Tag, TagKind};
 use nostr::{Filter, Timestamp};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::path::Path;
 use std::time::Duration;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -419,6 +422,23 @@ fn global_profile_marker_path(storage_dir: &str) -> std::path::PathBuf {
     std::path::Path::new(storage_dir).join("global_profile_configured")
 }
 
+fn global_profile_path(storage_dir: &str) -> std::path::PathBuf {
+    std::path::Path::new(storage_dir).join("global_profile.json")
+}
+
+/// This device's own Global Chat profile, cached locally after publishing so
+/// the app can show it (e.g. Home's Global tab) without a relay round-trip.
+/// `avatar_path` is a local file cache of `picture_url`'s bytes, the same
+/// path-reuse trick `account.rs`'s `Account::avatar_path` uses for instant
+/// display.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct GlobalOwnProfile {
+    pub name: String,
+    pub about: String,
+    pub avatar_path: Option<String>,
+    pub picture_url: Option<String>,
+}
+
 /// Whether this device has ever completed Global Profile setup (as opposed
 /// to skipping it) — a plain local marker file rather than a relay query,
 /// since the point is to gate the *local* redirect-to-setup UX, not to
@@ -431,10 +451,48 @@ pub fn has_global_profile(storage_dir: String) -> bool {
     global_profile_marker_path(&storage_dir).exists()
 }
 
+/// The locally cached copy of this device's own Global Chat profile, if
+/// Global Profile setup has ever completed (see [has_global_profile]).
+pub fn load_global_profile(storage_dir: String) -> Option<GlobalOwnProfile> {
+    let content = std::fs::read_to_string(global_profile_path(&storage_dir)).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+/// Copies a freshly-picked Global Profile avatar into permanent per-device
+/// storage under a content-hash-suffixed filename — mirrors
+/// `account.rs::save_account_avatar`, so Flutter's path-keyed `ImageCache`
+/// picks up the new bytes immediately instead of keeping the old bitmap for
+/// what used to be a reused path.
+pub fn save_global_profile_avatar(storage_dir: String, picked_path: String) -> Option<String> {
+    let bytes = std::fs::read(&picked_path).ok()?;
+    let hash = hex::encode(Sha256::digest(&bytes));
+    let extension = Path::new(&picked_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("jpg");
+    let file_name = format!("global_avatar_{hash}.{extension}");
+    let dir = Path::new(&storage_dir);
+    let dest = dir.join(&file_name);
+    std::fs::write(&dest, &bytes).ok()?;
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with("global_avatar_") && name != file_name {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+    Some(dest.to_string_lossy().to_string())
+}
+
 /// Publishes a NIP-01 profile (kind 0) for this account's dedicated Global
-/// Chat identity — the display name/bio shown next to this account's
+/// Chat identity — the display name/bio/avatar shown next to this account's
 /// channel posts (see `keys::derive_global_chat_keys` for why this is a
-/// separate identity from the core account). Marks Global Profile setup as
+/// separate identity from the core account). `avatar_path` (if given) is
+/// uploaded to the configured Blossom server (same servers `attachment.rs`
+/// uses for chat files) so other Nostr clients can actually fetch the
+/// `picture` URL, then cached locally. Marks Global Profile setup as
 /// completed locally on success (see [has_global_profile]).
 pub fn publish_global_profile(
     mnemonic: String,
@@ -442,19 +500,38 @@ pub fn publish_global_profile(
     relay_urls: Vec<String>,
     name: String,
     about: String,
+    avatar_path: Option<String>,
 ) -> Result<(), String> {
     runtime().block_on(async {
         let keys = derive_global_chat_keys(&mnemonic)?;
+
+        let mut picture_url = None;
+        if let Some(path) = &avatar_path {
+            let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+            let mime_type = match Path::new(path).extension().and_then(|e| e.to_str()) {
+                Some("png") => "image/png",
+                Some("webp") => "image/webp",
+                Some("gif") => "image/gif",
+                _ => "image/jpeg",
+            };
+            let server = load_upload_servers(storage_dir.clone()).default_url;
+            picture_url = Some(upload_plain_bytes(&server, mime_type, bytes, &keys).await?);
+        }
+
         let content = serde_json::to_string(&ChannelMetadataContent {
-            name,
-            about,
-            picture: String::new(),
+            name: name.clone(),
+            about: about.clone(),
+            picture: picture_url.clone().unwrap_or_default(),
         })
         .map_err(|e| e.to_string())?;
         let event = EventBuilder::new(Kind::Metadata, content)
             .sign_with_keys(&keys)
             .map_err(|e| e.to_string())?;
         publish_to_relays(&relay_urls, &event).await?;
+
+        let profile = GlobalOwnProfile { name, about, avatar_path, picture_url };
+        let profile_json = serde_json::to_string_pretty(&profile).map_err(|e| e.to_string())?;
+        let _ = std::fs::write(global_profile_path(&storage_dir), profile_json);
         let _ = std::fs::write(global_profile_marker_path(&storage_dir), "");
         Ok(())
     })

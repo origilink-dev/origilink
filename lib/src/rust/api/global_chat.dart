@@ -6,9 +6,9 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `channel_from_creation_event`, `client_tag`, `global_profile_marker_path`, `has_origilink_client_tag`, `joined_channels_path`, `profile_from_metadata_event`, `save_joined_channels`
+// These functions are ignored because they are not marked as `pub`: `channel_from_creation_event`, `client_tag`, `global_profile_marker_path`, `global_profile_path`, `has_origilink_client_tag`, `joined_channels_path`, `profile_from_metadata_event`, `save_joined_channels`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ChannelMetadataContent`, `ProfileMetadataContent`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`
 
 /// Creates a new public channel (NIP-28 kind 40), signed with this
 /// account's dedicated Global Chat identity (see `keys::derive_global_chat_keys`)
@@ -162,10 +162,33 @@ Future<bool> hasGlobalProfile({required String storageDir}) => RustLib
     .api
     .crateApiGlobalChatHasGlobalProfile(storageDir: storageDir);
 
+/// The locally cached copy of this device's own Global Chat profile, if
+/// Global Profile setup has ever completed (see [has_global_profile]).
+Future<GlobalOwnProfile?> loadGlobalProfile({required String storageDir}) =>
+    RustLib.instance.api.crateApiGlobalChatLoadGlobalProfile(
+      storageDir: storageDir,
+    );
+
+/// Copies a freshly-picked Global Profile avatar into permanent per-device
+/// storage under a content-hash-suffixed filename — mirrors
+/// `account.rs::save_account_avatar`, so Flutter's path-keyed `ImageCache`
+/// picks up the new bytes immediately instead of keeping the old bitmap for
+/// what used to be a reused path.
+Future<String?> saveGlobalProfileAvatar({
+  required String storageDir,
+  required String pickedPath,
+}) => RustLib.instance.api.crateApiGlobalChatSaveGlobalProfileAvatar(
+  storageDir: storageDir,
+  pickedPath: pickedPath,
+);
+
 /// Publishes a NIP-01 profile (kind 0) for this account's dedicated Global
-/// Chat identity — the display name/bio shown next to this account's
+/// Chat identity — the display name/bio/avatar shown next to this account's
 /// channel posts (see `keys::derive_global_chat_keys` for why this is a
-/// separate identity from the core account). Marks Global Profile setup as
+/// separate identity from the core account). `avatar_path` (if given) is
+/// uploaded to the configured Blossom server (same servers `attachment.rs`
+/// uses for chat files) so other Nostr clients can actually fetch the
+/// `picture` URL, then cached locally. Marks Global Profile setup as
 /// completed locally on success (see [has_global_profile]).
 Future<void> publishGlobalProfile({
   required String mnemonic,
@@ -173,12 +196,14 @@ Future<void> publishGlobalProfile({
   required List<String> relayUrls,
   required String name,
   required String about,
+  String? avatarPath,
 }) => RustLib.instance.api.crateApiGlobalChatPublishGlobalProfile(
   mnemonic: mnemonic,
   storageDir: storageDir,
   relayUrls: relayUrls,
   name: name,
   about: about,
+  avatarPath: avatarPath,
 );
 
 /// A NIP-28 channel, as shown in the channel list.
@@ -278,4 +303,40 @@ class GlobalChatProfile {
           pubkey == other.pubkey &&
           name == other.name &&
           picture == other.picture;
+}
+
+/// This device's own Global Chat profile, cached locally after publishing so
+/// the app can show it (e.g. Home's Global tab) without a relay round-trip.
+/// `avatar_path` is a local file cache of `picture_url`'s bytes, the same
+/// path-reuse trick `account.rs`'s `Account::avatar_path` uses for instant
+/// display.
+class GlobalOwnProfile {
+  final String name;
+  final String about;
+  final String? avatarPath;
+  final String? pictureUrl;
+
+  const GlobalOwnProfile({
+    required this.name,
+    required this.about,
+    this.avatarPath,
+    this.pictureUrl,
+  });
+
+  @override
+  int get hashCode =>
+      name.hashCode ^
+      about.hashCode ^
+      avatarPath.hashCode ^
+      pictureUrl.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is GlobalOwnProfile &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          about == other.about &&
+          avatarPath == other.avatarPath &&
+          pictureUrl == other.pictureUrl;
 }

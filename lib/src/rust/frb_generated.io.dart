@@ -74,6 +74,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   GlobalChannel dco_decode_box_autoadd_global_channel(dynamic raw);
 
   @protected
+  GlobalOwnProfile dco_decode_box_autoadd_global_own_profile(dynamic raw);
+
+  @protected
   GroupChatAttachment dco_decode_box_autoadd_group_chat_attachment(dynamic raw);
 
   @protected
@@ -123,6 +126,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   GlobalChatProfile dco_decode_global_chat_profile(dynamic raw);
+
+  @protected
+  GlobalOwnProfile dco_decode_global_own_profile(dynamic raw);
 
   @protected
   Group dco_decode_group(dynamic raw);
@@ -211,6 +217,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ChatAttachment? dco_decode_opt_box_autoadd_chat_attachment(dynamic raw);
+
+  @protected
+  GlobalOwnProfile? dco_decode_opt_box_autoadd_global_own_profile(dynamic raw);
 
   @protected
   GroupChatAttachment? dco_decode_opt_box_autoadd_group_chat_attachment(
@@ -331,6 +340,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  GlobalOwnProfile sse_decode_box_autoadd_global_own_profile(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   GroupChatAttachment sse_decode_box_autoadd_group_chat_attachment(
     SseDeserializer deserializer,
   );
@@ -396,6 +410,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   GlobalChatProfile sse_decode_global_chat_profile(
     SseDeserializer deserializer,
   );
+
+  @protected
+  GlobalOwnProfile sse_decode_global_own_profile(SseDeserializer deserializer);
 
   @protected
   Group sse_decode_group(SseDeserializer deserializer);
@@ -498,6 +515,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ChatAttachment? sse_decode_opt_box_autoadd_chat_attachment(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  GlobalOwnProfile? sse_decode_opt_box_autoadd_global_own_profile(
     SseDeserializer deserializer,
   );
 
@@ -645,6 +667,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_global_own_profile(
+    GlobalOwnProfile self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_group_chat_attachment(
     GroupChatAttachment self,
     SseSerializer serializer,
@@ -722,6 +750,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_global_chat_profile(
     GlobalChatProfile self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_global_own_profile(
+    GlobalOwnProfile self,
     SseSerializer serializer,
   );
 
@@ -857,6 +891,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_opt_box_autoadd_chat_attachment(
     ChatAttachment? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_global_own_profile(
+    GlobalOwnProfile? self,
     SseSerializer serializer,
   );
 

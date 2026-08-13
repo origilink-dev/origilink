@@ -280,6 +280,46 @@ pub(crate) async fn upload_ciphertext(
     Ok(descriptor.url)
 }
 
+/// Uploads plain (unencrypted) bytes to a Blossom server and returns the
+/// resulting URL — unlike [upload_ciphertext] (1:1/group attachments, always
+/// encrypted, streams progress), this is for content that's meant to be
+/// publicly fetchable as-is, e.g. a Global Chat profile picture referenced
+/// by URL from a NIP-01 kind-0 event. No progress reporting since these
+/// uploads are small (avatar-sized) and synchronous from the caller's
+/// perspective.
+pub(crate) async fn upload_plain_bytes(
+    server: &str,
+    mime_type: &str,
+    bytes: Vec<u8>,
+    keys: &nostr::Keys,
+) -> Result<String, String> {
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    let sha256_hex = hex::encode(hasher.finalize());
+
+    let auth = blossom_auth_event(keys, "upload", &sha256_hex).await?;
+    use base64::Engine as _;
+    let auth_header = format!(
+        "Nostr {}",
+        base64::engine::general_purpose::STANDARD.encode(auth.as_json())
+    );
+
+    let response = http_client()
+        .put(format!("{}/upload", server.trim_end_matches('/')))
+        .header("Authorization", auth_header)
+        .header("Content-Type", mime_type)
+        .timeout(UPLOAD_TIMEOUT)
+        .body(bytes)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("upload failed: HTTP {}", response.status()));
+    }
+    let descriptor: BlobDescriptor = response.json().await.map_err(|e| e.to_string())?;
+    Ok(descriptor.url)
+}
+
 /// Downloads the ciphertext bytes at `url` — shared by 1:1 and group
 /// attachment downloads.
 pub(crate) async fn download_ciphertext(url: &str) -> Result<Vec<u8>, String> {

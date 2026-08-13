@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -483,12 +484,56 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  /// Opens Global Profile setup/edit. When a profile already exists, loads
+  /// it first so the form is pre-filled (edit rather than create). Used
+  /// both by the pencil icon on an existing profile and — via
+  /// [_openGlobalModeGuarded] — as the redirect target when switching into
+  /// Global mode without one yet.
   Future<void> _openGlobalProfileSetup() async {
+    final storageDir = await getApplicationDocumentsDirectory();
+    final existing = await global_chat_api.loadGlobalProfile(storageDir: storageDir.path);
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => GlobalProfileSetupScreen(
+          existingProfile: existing,
+          onDone: () => Navigator.of(context).pop(),
+        ),
+      ),
+    );
+    _globalProfileTabKey.currentState?.reload();
+  }
+
+  /// The Private/Global toggle's callback: switching to Private never needs
+  /// gating, but switching to Global does — without a Global Profile yet,
+  /// jump to setup instead of just flipping the mode, since Home/Talk's
+  /// Global content (posting a channel, appearing under a name) all assumes
+  /// one exists. Staying on Private after a skip is deliberate; completing
+  /// setup switches to Global immediately since that's clearly what was
+  /// wanted.
+  Future<void> _onGlobalModeChanged(bool value) async {
+    if (!value) {
+      setState(() => _globalMode = false);
+      return;
+    }
+    final storageDir = await getApplicationDocumentsDirectory();
+    final hasProfile = await global_chat_api.hasGlobalProfile(storageDir: storageDir.path);
+    if (hasProfile) {
+      setState(() => _globalMode = true);
+      return;
+    }
+    if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => GlobalProfileSetupScreen(onDone: () => Navigator.of(context).pop()),
       ),
     );
+    if (!mounted) return;
+    final createdProfile = await global_chat_api.hasGlobalProfile(storageDir: storageDir.path);
+    if (createdProfile) {
+      _globalProfileTabKey.currentState?.reload();
+      setState(() => _globalMode = true);
+    }
   }
 
   Future<void> _addChannel(BuildContext context) async {
@@ -578,7 +623,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               isTalkTab: _selectedIndex == 1 && !_globalMode,
               showModeToggle: _selectedIndex == 0 || _selectedIndex == 1,
               isGlobalMode: _globalMode,
-              onGlobalModeChanged: (value) => setState(() => _globalMode = value),
+              onGlobalModeChanged: _onGlobalModeChanged,
               privateBadgeCount: _pendingRequestCount + _talkUnreadTotal,
               isGlobalTab: _globalMode && _selectedIndex == 1,
               onAddChannel: () => _addChannel(context),
@@ -636,7 +681,7 @@ class _HomeTopBar extends StatelessWidget {
   /// visible tab (Home or Talk) — false on the Timeline placeholder tab.
   final bool showModeToggle;
   final bool isGlobalMode;
-  final ValueChanged<bool> onGlobalModeChanged;
+  final Future<void> Function(bool) onGlobalModeChanged;
 
   /// Combined pending-friend-request + unread-message count, shown as the
   /// toggle's Private-side badge.
@@ -765,6 +810,7 @@ class _GlobalProfileTab extends StatefulWidget {
 
 class _GlobalProfileTabState extends State<_GlobalProfileTab> {
   List<global_chat_api.GlobalChannel> _channels = [];
+  global_chat_api.GlobalOwnProfile? _profile;
 
   @override
   void initState() {
@@ -775,8 +821,12 @@ class _GlobalProfileTabState extends State<_GlobalProfileTab> {
   Future<void> reload() async {
     final storageDir = await getApplicationDocumentsDirectory();
     final channels = await global_chat_api.listJoinedChannels(storageDir: storageDir.path);
+    final profile = await global_chat_api.loadGlobalProfile(storageDir: storageDir.path);
     if (!mounted) return;
-    setState(() => _channels = channels);
+    setState(() {
+      _channels = channels;
+      _profile = profile;
+    });
   }
 
   Future<void> _openChannelProfile(global_chat_api.GlobalChannel channel) async {
@@ -810,15 +860,23 @@ class _GlobalProfileTabState extends State<_GlobalProfileTab> {
                 Container(
                   width: 64,
                   height: 64,
+                  clipBehavior: Clip.antiAlias,
                   decoration: BoxDecoration(
                     color: OrigilinkColors.background,
                     borderRadius: BorderRadius.circular(18),
                   ),
-                  child: const Icon(
-                    Icons.public,
-                    size: 32,
-                    color: OrigilinkColors.textSecondary,
-                  ),
+                  child: _profile?.avatarPath != null
+                      ? Image.file(
+                          File(_profile!.avatarPath!),
+                          width: 64,
+                          height: 64,
+                          fit: BoxFit.cover,
+                        )
+                      : const Icon(
+                          Icons.public,
+                          size: 32,
+                          color: OrigilinkColors.textSecondary,
+                        ),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -826,7 +884,9 @@ class _GlobalProfileTabState extends State<_GlobalProfileTab> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        l10n.globalProfileSetupTitle,
+                        (_profile?.name.isNotEmpty ?? false)
+                            ? _profile!.name
+                            : l10n.globalProfileSetupTitle,
                         style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w600,
@@ -836,9 +896,11 @@ class _GlobalProfileTabState extends State<_GlobalProfileTab> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        widget.globalPubkey != null
-                            ? '${widget.globalPubkey!.substring(0, 16)}…'
-                            : '',
+                        (_profile?.about.isNotEmpty ?? false)
+                            ? _profile!.about
+                            : (widget.globalPubkey != null
+                                  ? '${widget.globalPubkey!.substring(0, 16)}…'
+                                  : ''),
                         style: const TextStyle(fontSize: 13, color: OrigilinkColors.textSecondary),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
