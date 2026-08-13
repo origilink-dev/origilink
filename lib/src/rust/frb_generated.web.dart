@@ -73,6 +73,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ChatAttachment dco_decode_box_autoadd_chat_attachment(dynamic raw);
 
   @protected
+  GlobalChannel dco_decode_box_autoadd_global_channel(dynamic raw);
+
+  @protected
   GroupChatAttachment dco_decode_box_autoadd_group_chat_attachment(dynamic raw);
 
   @protected
@@ -321,6 +324,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ChatAttachment sse_decode_box_autoadd_chat_attachment(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  GlobalChannel sse_decode_box_autoadd_global_channel(
     SseDeserializer deserializer,
   );
 
@@ -629,6 +637,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_chat_attachment(
     ChatAttachment self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_global_channel(
+    GlobalChannel self,
     SseSerializer serializer,
   );
 

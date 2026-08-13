@@ -16,6 +16,7 @@ import 'package:origilink/screens/login.dart';
 import 'package:origilink/screens/logout.dart' show seedStorageKey;
 import 'package:origilink/screens/account_friends.dart';
 import 'package:origilink/screens/global_chat_list.dart';
+import 'package:origilink/screens/global_chat_talk_tab.dart';
 import 'package:origilink/screens/global_profile_setup.dart';
 import 'package:origilink/screens/settings.dart';
 import 'package:origilink/services/account_sync.dart';
@@ -61,8 +62,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _selectedIndex = 1;
-  bool _origilinkOnlyChannels = true;
-  final _globalChatKey = GlobalKey<GlobalChatListTabState>();
+  final _globalChatKey = GlobalKey<GlobalChatTalkTabState>();
   late account_api.Account _profile = widget.profile;
 
   /// Shared between the Home and Talk tabs (index 0 and 1) — switching to
@@ -517,7 +517,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             messageEvents: _friendEventsStream,
           );
     final talkTab = _globalMode
-        ? GlobalChatListTab(key: _globalChatKey, origilinkOnly: _origilinkOnlyChannels)
+        ? GlobalChatTalkTab(key: _globalChatKey)
         : ChatListTab(
             // Only friends with a started (or already-in-progress) chat show
             // up here — tapping "Talk" on a friend's profile is what starts
@@ -560,11 +560,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               onGlobalModeChanged: (value) => setState(() => _globalMode = value),
               privateBadgeCount: _pendingRequestCount + _talkUnreadTotal,
               isGlobalTab: _globalMode && _selectedIndex == 1,
-              origilinkOnlyChannels: _origilinkOnlyChannels,
-              onOrigilinkOnlyChannelsChanged: (value) {
-                setState(() => _origilinkOnlyChannels = value);
+              onSearchChannels: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const GlobalChannelSearchScreen()),
+                );
+                _globalChatKey.currentState?.reload();
               },
-              onCreateChannel: () => _globalChatKey.currentState?.createChannel(),
+              onCreateChannel: () async {
+                final created = await createGlobalChannel(context);
+                if (created) _globalChatKey.currentState?.reload();
+              },
             ),
             Expanded(child: tabs[_selectedIndex]),
           ],
@@ -592,8 +597,7 @@ class _HomeTopBar extends StatelessWidget {
     required this.pendingRequestCount,
     required this.isTalkTab,
     required this.isGlobalTab,
-    required this.origilinkOnlyChannels,
-    required this.onOrigilinkOnlyChannelsChanged,
+    required this.onSearchChannels,
     required this.onCreateChannel,
     required this.showModeToggle,
     required this.isGlobalMode,
@@ -612,12 +616,10 @@ class _HomeTopBar extends StatelessWidget {
   /// instead of jumping straight to add-friend.
   final bool isTalkTab;
 
-  /// True on the Talk tab while in Global mode — this bar also shows the
-  /// origilink-only/all-channels toggle, and the "+" icon becomes "new
-  /// channel" instead.
+  /// True on the Talk tab while in Global mode — the "+" icon becomes a
+  /// menu with "search channels" / "create channel" instead.
   final bool isGlobalTab;
-  final bool origilinkOnlyChannels;
-  final ValueChanged<bool> onOrigilinkOnlyChannelsChanged;
+  final VoidCallback onSearchChannels;
   final VoidCallback onCreateChannel;
 
   /// Whether the Private/Global segmented toggle applies to the currently
@@ -671,9 +673,38 @@ class _HomeTopBar extends StatelessWidget {
     }
   }
 
+  Future<void> _showGlobalAddMenu(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: OrigilinkColors.background,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.search),
+              title: Text(l10n.searchChannelsTitle),
+              onTap: () => Navigator.of(sheetContext).pop('search'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.add_comment_outlined),
+              title: Text(l10n.createChannelMenuTitle),
+              onTap: () => Navigator.of(sheetContext).pop('create'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == 'search') {
+      onSearchChannels();
+    } else if (choice == 'create') {
+      onCreateChannel();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Row(
@@ -689,26 +720,6 @@ class _HomeTopBar extends StatelessWidget {
             const SizedBox.shrink(),
           Row(
             children: [
-              if (isGlobalTab) ...[
-                Tooltip(
-                  message: origilinkOnlyChannels
-                      ? l10n.showAllChannelsTooltip
-                      : l10n.showOrigilinkChannelsTooltip,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(20),
-                    onTap: () => onOrigilinkOnlyChannelsChanged(!origilinkOnlyChannels),
-                    child: Transform.scale(
-                      scale: 0.75,
-                      child: Switch.adaptive(
-                        value: origilinkOnlyChannels,
-                        activeThumbColor: OrigilinkColors.primaryDark,
-                        onChanged: onOrigilinkOnlyChannelsChanged,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 4),
-              ],
               if (isTalkTab)
                 _topBarIcon(
                   Icons.add,
@@ -716,7 +727,7 @@ class _HomeTopBar extends StatelessWidget {
                   badgeCount: pendingRequestCount,
                 )
               else if (isGlobalTab)
-                _topBarIcon(Icons.add_comment_outlined, onCreateChannel)
+                _topBarIcon(Icons.add, () => _showGlobalAddMenu(context))
               else if (!isGlobalMode)
                 _topBarIcon(
                   Icons.person_add_alt_outlined,

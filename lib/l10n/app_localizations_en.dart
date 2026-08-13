@@ -293,6 +293,27 @@ class AppLocalizationsEn extends AppLocalizations {
       'Set up a Global Profile first to use Global Chat.';
 
   @override
+  String get searchChannelsTitle => 'Search channels';
+
+  @override
+  String get createChannelMenuTitle => 'Create a channel';
+
+  @override
+  String get noJoinedChannelsYet =>
+      'No channels yet — search to join one, or create your own';
+
+  @override
+  String get leaveChannelButton => 'Leave';
+
+  @override
+  String get leaveChannelConfirmTitle => 'Leave channel?';
+
+  @override
+  String leaveChannelConfirmBody(Object channelName) {
+    return 'You\'ll stop seeing $channelName in Talk. You can rejoin it later from Search.';
+  }
+
+  @override
   String get newChannelTitle => 'New channel';
 
   @override

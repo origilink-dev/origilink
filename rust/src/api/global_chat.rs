@@ -33,6 +33,7 @@ struct ChannelMetadataContent {
 }
 
 /// A NIP-28 channel, as shown in the channel list.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct GlobalChannel {
     /// The channel's creation event id — its stable identifier.
     pub id: String,
@@ -113,6 +114,7 @@ fn channel_from_creation_event(event: &Event) -> Option<GlobalChannel> {
 /// doc). Returns the new channel's id.
 pub fn create_channel(
     mnemonic: String,
+    storage_dir: String,
     relay_urls: Vec<String>,
     name: String,
     about: String,
@@ -120,8 +122,8 @@ pub fn create_channel(
     runtime().block_on(async {
         let keys = derive_global_chat_keys(&mnemonic)?;
         let content = serde_json::to_string(&ChannelMetadataContent {
-            name,
-            about,
+            name: name.clone(),
+            about: about.clone(),
             picture: String::new(),
         })
         .map_err(|e| e.to_string())?;
@@ -131,6 +133,20 @@ pub fn create_channel(
             .map_err(|e| e.to_string())?;
         let id = event.id.to_hex();
         publish_to_relays(&relay_urls, &event).await?;
+        // Creating a channel implies joining it — otherwise it would
+        // publish successfully but vanish from this device's own Talk/
+        // Global list, which only shows joined channels.
+        join_channel(
+            storage_dir,
+            GlobalChannel {
+                id: id.clone(),
+                name,
+                about,
+                creator_pubkey: keys.public_key().to_hex(),
+                created_at: event.created_at.as_secs() as i64,
+                is_origilink: true,
+            },
+        );
         Ok(id)
     })
 }
@@ -201,6 +217,48 @@ pub fn list_channels(relay_urls: Vec<String>) -> Vec<GlobalChannel> {
         });
         channels
     })
+}
+
+fn joined_channels_path(storage_dir: &str) -> std::path::PathBuf {
+    std::path::Path::new(storage_dir).join("joined_channels.json")
+}
+
+/// Channels this account has explicitly joined — the Global-mode
+/// counterpart to `friends.json`, so Talk's Global mode can show a plain
+/// list of channels the account is actually part of (styled like an
+/// ordinary chat row: name + last-message preview) instead of the full
+/// browse-everything list from [list_channels]. Purely local: joining
+/// doesn't publish anything (NIP-28 has no membership event), it just
+/// remembers the channel so this device keeps showing it.
+pub fn list_joined_channels(storage_dir: String) -> Vec<GlobalChannel> {
+    std::fs::read_to_string(joined_channels_path(&storage_dir))
+        .ok()
+        .and_then(|content| serde_json::from_str(&content).ok())
+        .unwrap_or_default()
+}
+
+fn save_joined_channels(storage_dir: &str, channels: &[GlobalChannel]) {
+    if let Ok(content) = serde_json::to_string(channels) {
+        let _ = std::fs::write(joined_channels_path(storage_dir), content);
+    }
+}
+
+/// Adds `channel` to this device's joined-channels list (see
+/// [list_joined_channels]) — a no-op if already joined.
+pub fn join_channel(storage_dir: String, channel: GlobalChannel) {
+    let mut channels = list_joined_channels(storage_dir.clone());
+    if channels.iter().any(|c| c.id == channel.id) {
+        return;
+    }
+    channels.push(channel);
+    save_joined_channels(&storage_dir, &channels);
+}
+
+/// Removes `channel_id` from this device's joined-channels list.
+pub fn leave_channel(storage_dir: String, channel_id: String) {
+    let mut channels = list_joined_channels(storage_dir.clone());
+    channels.retain(|c| c.id != channel_id);
+    save_joined_channels(&storage_dir, &channels);
 }
 
 /// Page size for [load_channel_messages].

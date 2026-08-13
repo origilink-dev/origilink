@@ -6,9 +6,9 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `channel_from_creation_event`, `client_tag`, `global_profile_marker_path`, `has_origilink_client_tag`, `profile_from_metadata_event`
+// These functions are ignored because they are not marked as `pub`: `channel_from_creation_event`, `client_tag`, `global_profile_marker_path`, `has_origilink_client_tag`, `joined_channels_path`, `profile_from_metadata_event`, `save_joined_channels`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ChannelMetadataContent`, `ProfileMetadataContent`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`
 
 /// Creates a new public channel (NIP-28 kind 40), signed with this
 /// account's dedicated Global Chat identity (see `keys::derive_global_chat_keys`)
@@ -18,11 +18,13 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 /// doc). Returns the new channel's id.
 Future<String> createChannel({
   required String mnemonic,
+  required String storageDir,
   required List<String> relayUrls,
   required String name,
   required String about,
 }) => RustLib.instance.api.crateApiGlobalChatCreateChannel(
   mnemonic: mnemonic,
+  storageDir: storageDir,
   relayUrls: relayUrls,
   name: name,
   about: about,
@@ -46,6 +48,37 @@ Future<String> createChannel({
 /// finally ranking by message count with recency as the tiebreak.
 Future<List<GlobalChannel>> listChannels({required List<String> relayUrls}) =>
     RustLib.instance.api.crateApiGlobalChatListChannels(relayUrls: relayUrls);
+
+/// Channels this account has explicitly joined — the Global-mode
+/// counterpart to `friends.json`, so Talk's Global mode can show a plain
+/// list of channels the account is actually part of (styled like an
+/// ordinary chat row: name + last-message preview) instead of the full
+/// browse-everything list from [list_channels]. Purely local: joining
+/// doesn't publish anything (NIP-28 has no membership event), it just
+/// remembers the channel so this device keeps showing it.
+Future<List<GlobalChannel>> listJoinedChannels({required String storageDir}) =>
+    RustLib.instance.api.crateApiGlobalChatListJoinedChannels(
+      storageDir: storageDir,
+    );
+
+/// Adds `channel` to this device's joined-channels list (see
+/// [list_joined_channels]) — a no-op if already joined.
+Future<void> joinChannel({
+  required String storageDir,
+  required GlobalChannel channel,
+}) => RustLib.instance.api.crateApiGlobalChatJoinChannel(
+  storageDir: storageDir,
+  channel: channel,
+);
+
+/// Removes `channel_id` from this device's joined-channels list.
+Future<void> leaveChannel({
+  required String storageDir,
+  required String channelId,
+}) => RustLib.instance.api.crateApiGlobalChatLeaveChannel(
+  storageDir: storageDir,
+  channelId: channelId,
+);
 
 /// Loads up to a page of `channel_id`'s messages, across `relay_urls`.
 /// `before` (when set) pages backward from that Unix timestamp instead of

@@ -614,6 +614,42 @@ abstract class AppLocalizations {
   /// **'Set up a Global Profile first to use Global Chat.'**
   String get globalProfileRequiredBody;
 
+  /// No description provided for @searchChannelsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Search channels'**
+  String get searchChannelsTitle;
+
+  /// No description provided for @createChannelMenuTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Create a channel'**
+  String get createChannelMenuTitle;
+
+  /// No description provided for @noJoinedChannelsYet.
+  ///
+  /// In en, this message translates to:
+  /// **'No channels yet — search to join one, or create your own'**
+  String get noJoinedChannelsYet;
+
+  /// No description provided for @leaveChannelButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave'**
+  String get leaveChannelButton;
+
+  /// No description provided for @leaveChannelConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave channel?'**
+  String get leaveChannelConfirmTitle;
+
+  /// No description provided for @leaveChannelConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'ll stop seeing {channelName} in Talk. You can rejoin it later from Search.'**
+  String leaveChannelConfirmBody(Object channelName);
+
   /// No description provided for @newChannelTitle.
   ///
   /// In en, this message translates to:

@@ -290,6 +290,26 @@ class AppLocalizationsJa extends AppLocalizations {
       'グローバルチャットを使うには、先にグローバルプロフィールを作成してください。';
 
   @override
+  String get searchChannelsTitle => 'チャンネルを検索';
+
+  @override
+  String get createChannelMenuTitle => 'チャンネルを作成';
+
+  @override
+  String get noJoinedChannelsYet => 'まだチャンネルがありません。検索して参加するか、新しく作成してください';
+
+  @override
+  String get leaveChannelButton => '退出';
+
+  @override
+  String get leaveChannelConfirmTitle => 'チャンネルを退出しますか？';
+
+  @override
+  String leaveChannelConfirmBody(Object channelName) {
+    return '$channelName がトークに表示されなくなります。検索から後で再参加できます。';
+  }
+
+  @override
   String get newChannelTitle => '新しいチャンネル';
 
   @override
