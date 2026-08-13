@@ -12,7 +12,7 @@
 //! created here is equally visible/joinable from Damus, Amethyst, or any
 //! other NIP-28 client, and vice versa.
 
-use crate::api::attachment::{load_upload_servers, upload_plain_bytes};
+use crate::api::attachment::{delete_blossom_blob, load_upload_servers, upload_plain_bytes};
 use crate::api::keys::derive_global_chat_keys;
 use crate::api::sync::{publish_to_relays, runtime};
 use crate::frb_generated::StreamSink;
@@ -458,6 +458,16 @@ pub fn load_global_profile(storage_dir: String) -> Option<GlobalOwnProfile> {
     serde_json::from_str(&content).ok()
 }
 
+/// Deletes this device's currently-published Global Profile picture from
+/// the Blossom server — called on account deletion, since nothing will
+/// reference it again once the local profile is wiped. Best-effort: the
+/// caller should ignore failures (offline, server doesn't support delete,
+/// already gone).
+pub fn delete_global_profile_picture(mnemonic: String, picture_url: String) -> Result<(), String> {
+    let keys = derive_global_chat_keys(&mnemonic)?;
+    runtime().block_on(delete_blossom_blob(&picture_url, &keys))
+}
+
 /// Copies a freshly-picked Global Profile avatar into permanent per-device
 /// storage under a content-hash-suffixed filename — mirrors
 /// `account.rs::save_account_avatar`, so Flutter's path-keyed `ImageCache`
@@ -502,6 +512,7 @@ pub fn publish_global_profile(
     about: String,
     avatar_path: Option<String>,
 ) -> Result<(), String> {
+    let previous_picture_url = load_global_profile(storage_dir.clone()).and_then(|p| p.picture_url);
     runtime().block_on(async {
         let keys = derive_global_chat_keys(&mnemonic)?;
 
@@ -516,6 +527,11 @@ pub fn publish_global_profile(
             };
             let server = load_upload_servers(storage_dir.clone()).default_url;
             picture_url = Some(upload_plain_bytes(&server, mime_type, bytes, &keys).await?);
+            // Best-effort: don't let a stale copy pile up on the server
+            // every time the avatar is replaced.
+            if let Some(previous) = &previous_picture_url {
+                let _ = delete_blossom_blob(previous, &keys).await;
+            }
         }
 
         let content = serde_json::to_string(&ChannelMetadataContent {

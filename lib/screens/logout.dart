@@ -5,6 +5,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:origilink/l10n/app_localizations.dart';
 import 'package:origilink/screens/login.dart';
 import 'package:origilink/screens/seed_backup.dart';
+import 'package:origilink/src/rust/api/account.dart' as account_api;
+import 'package:origilink/src/rust/api/global_chat.dart' as global_chat_api;
 import 'package:origilink/src/rust/api/keys.dart' as keys_api;
 import 'package:origilink/src/rust/api/relay.dart' as relay_api;
 import 'package:origilink/src/rust/api/sync.dart' as sync_api;
@@ -83,6 +85,31 @@ class AccountSettingsScreen extends StatelessWidget {
       } catch (_) {
         // Relays unreachable — the local wipe still proceeds; the backup
         // event may linger on relays that were offline for this request.
+      }
+
+      // Best-effort: also remove this device's uploaded avatar blobs from
+      // the Blossom server(s) — nothing will ever reference them again
+      // once the local account/profile is wiped.
+      final account = await account_api.loadAccount(storageDir: storageDir.path);
+      final avatarLink = account?.avatarLink;
+      if (avatarLink != null) {
+        try {
+          await account_api.deleteAccountAvatarBlob(mnemonic: mnemonic, avatarLink: avatarLink);
+        } catch (_) {
+          // Offline or server doesn't support delete — nothing more to do.
+        }
+      }
+      final globalProfile = await global_chat_api.loadGlobalProfile(storageDir: storageDir.path);
+      final pictureUrl = globalProfile?.pictureUrl;
+      if (pictureUrl != null) {
+        try {
+          await global_chat_api.deleteGlobalProfilePicture(
+            mnemonic: mnemonic,
+            pictureUrl: pictureUrl,
+          );
+        } catch (_) {
+          // Offline or server doesn't support delete — nothing more to do.
+        }
       }
     }
     onLogout();

@@ -82,16 +82,40 @@ pub fn save_account_avatar(storage_dir: String, picked_path: String) -> Option<S
 /// same bytes on each one. Signed with a dedicated per-device key
 /// (`keys::derive_avatar_upload_keys`) never shared with anyone — see that
 /// function's doc for why.
+/// `previous_avatar_link` (the value being replaced, if any) is best-effort
+/// deleted from the Blossom server after the new upload succeeds, so
+/// replacing an avatar repeatedly doesn't leave every past encrypted copy
+/// sitting there forever — failures (server doesn't support delete, offline,
+/// already gone) are silently ignored since cleanup isn't essential to the
+/// replace itself succeeding.
 pub fn upload_account_avatar_link(
     mnemonic: String,
     storage_dir: String,
     avatar_path: String,
+    previous_avatar_link: Option<String>,
 ) -> Result<String, String> {
     let bytes = fs::read(&avatar_path).map_err(|e| e.to_string())?;
     let keys = crate::api::keys::derive_avatar_upload_keys(&mnemonic)?;
     let server = crate::api::attachment::load_upload_servers(storage_dir).default_url;
-    crate::api::sync::runtime()
-        .block_on(crate::api::attachment::upload_encrypted_link(&server, &bytes, &keys))
+    let link = crate::api::sync::runtime()
+        .block_on(crate::api::attachment::upload_encrypted_link(&server, &bytes, &keys))?;
+    if let Some(previous) = previous_avatar_link {
+        if let Some((previous_url, _)) = previous.split_once('#') {
+            let _ = crate::api::sync::runtime()
+                .block_on(crate::api::attachment::delete_blossom_blob(previous_url, &keys));
+        }
+    }
+    Ok(link)
+}
+
+/// Deletes this account's currently-uploaded avatar blob from the Blossom
+/// server — called on account deletion, since nothing will ever reference
+/// it again once the local account is wiped. Best-effort: the caller should
+/// ignore failures (offline, server doesn't support delete, already gone).
+pub fn delete_account_avatar_blob(mnemonic: String, avatar_link: String) -> Result<(), String> {
+    let (url, _) = avatar_link.split_once('#').ok_or("malformed encrypted link")?;
+    let keys = crate::api::keys::derive_avatar_upload_keys(&mnemonic)?;
+    crate::api::sync::runtime().block_on(crate::api::attachment::delete_blossom_blob(url, &keys))
 }
 
 /// Downloads and decrypts an encrypted avatar link (from a friend's

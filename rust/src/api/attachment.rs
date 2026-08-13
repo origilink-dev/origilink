@@ -347,6 +347,44 @@ pub(crate) async fn download_encrypted_link(link: &str) -> Result<Vec<u8>, Strin
     decrypt_attachment_bytes(&key_and_nonce, &ciphertext)
 }
 
+/// Deletes a blob previously uploaded via [upload_plain_bytes]/
+/// [upload_encrypted_link] (BUD-02 `DELETE /<sha256>`, authorized the same
+/// way as an upload — `keys` must be the same key that uploaded it, since
+/// most Blossom servers only allow the original uploader to delete). Call
+/// when replacing an avatar so the old (now-unreferenced) ciphertext
+/// doesn't just sit on the server forever. Best-effort: the caller should
+/// ignore failures (server doesn't support delete, already GC'd, offline)
+/// rather than block on cleanup that isn't essential to the replace itself.
+pub(crate) async fn delete_blossom_blob(url: &str, keys: &nostr::Keys) -> Result<(), String> {
+    let file_name = url.rsplit('/').next().ok_or("malformed blob url")?;
+    let sha256_hex = file_name.split('.').next().unwrap_or(file_name);
+    // The delete route is registered at `/<sha256>`, not `/<sha256>.<ext>` —
+    // sending the extension along (i.e. reusing the upload/download URL
+    // as-is) 401s with "Missing or mismatched x tag" even though the `x`
+    // tag's hash is correct, since the server never matches the route to
+    // begin resolving it. Confirmed against nostr.download.
+    let base = url.rsplit_once('/').map(|(base, _)| base).ok_or("malformed blob url")?;
+    let delete_url = format!("{base}/{sha256_hex}");
+
+    let auth = blossom_auth_event(keys, "delete", sha256_hex).await?;
+    use base64::Engine as _;
+    let auth_header = format!(
+        "Nostr {}",
+        base64::engine::general_purpose::STANDARD.encode(auth.as_json())
+    );
+    let response = http_client()
+        .delete(&delete_url)
+        .header("Authorization", auth_header)
+        .timeout(UPLOAD_TIMEOUT)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("delete failed: HTTP {}", response.status()));
+    }
+    Ok(())
+}
+
 /// Downloads the ciphertext bytes at `url` — shared by 1:1 and group
 /// attachment downloads.
 pub(crate) async fn download_ciphertext(url: &str) -> Result<Vec<u8>, String> {

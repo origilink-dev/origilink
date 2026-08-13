@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `block_pubkey_with_uid`, `blocked_path`, `friends_path`, `load_blocked_entries`, `load_blocked_uids`, `load_blocked`, `now`, `save_blocked_entries`, `save_friends_list`, `set_blocked_snapshot`, `update_friend_profile`
+// These functions are ignored because they are not marked as `pub`: `block_pubkey_with_uid`, `blocked_path`, `friends_path`, `load_blocked_entries`, `load_blocked_uids`, `load_blocked`, `now`, `remove_cached_avatar`, `save_blocked_entries`, `save_friends_list`, `set_blocked_snapshot`, `update_friend_profile`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `BlockedEntry`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`
 
@@ -72,6 +72,9 @@ Future<void> setFavoriteFriend({
 );
 
 /// Removes a friend by their contact pubkey (e.g. after they're blocked).
+/// Also deletes their cached avatar file (`friend_avatars/<pubkey>_*`, see
+/// `sync.rs`'s `save_friend_avatar_link`) — otherwise it would sit on disk
+/// forever, never referenced again once the friend entry is gone.
 Future<void> removeFriend({
   required String storageDir,
   required String pubkey,

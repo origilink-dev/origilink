@@ -27,14 +27,34 @@ Future<String?> saveAccountAvatar({
 /// same bytes on each one. Signed with a dedicated per-device key
 /// (`keys::derive_avatar_upload_keys`) never shared with anyone — see that
 /// function's doc for why.
+/// `previous_avatar_link` (the value being replaced, if any) is best-effort
+/// deleted from the Blossom server after the new upload succeeds, so
+/// replacing an avatar repeatedly doesn't leave every past encrypted copy
+/// sitting there forever — failures (server doesn't support delete, offline,
+/// already gone) are silently ignored since cleanup isn't essential to the
+/// replace itself succeeding.
 Future<String> uploadAccountAvatarLink({
   required String mnemonic,
   required String storageDir,
   required String avatarPath,
+  String? previousAvatarLink,
 }) => RustLib.instance.api.crateApiAccountUploadAccountAvatarLink(
   mnemonic: mnemonic,
   storageDir: storageDir,
   avatarPath: avatarPath,
+  previousAvatarLink: previousAvatarLink,
+);
+
+/// Deletes this account's currently-uploaded avatar blob from the Blossom
+/// server — called on account deletion, since nothing will ever reference
+/// it again once the local account is wiped. Best-effort: the caller should
+/// ignore failures (offline, server doesn't support delete, already gone).
+Future<void> deleteAccountAvatarBlob({
+  required String mnemonic,
+  required String avatarLink,
+}) => RustLib.instance.api.crateApiAccountDeleteAccountAvatarBlob(
+  mnemonic: mnemonic,
+  avatarLink: avatarLink,
 );
 
 /// Downloads and decrypts an encrypted avatar link (from a friend's

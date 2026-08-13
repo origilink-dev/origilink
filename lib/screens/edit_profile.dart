@@ -83,6 +83,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               mnemonic: mnemonic,
               storageDir: storageDir.path,
               avatarPath: avatarPath,
+              previousAvatarLink: widget.profile.avatarLink,
             );
           } catch (_) {
             // Offline or every upload server unreachable — friends/other

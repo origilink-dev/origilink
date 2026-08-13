@@ -169,6 +169,19 @@ Future<GlobalOwnProfile?> loadGlobalProfile({required String storageDir}) =>
       storageDir: storageDir,
     );
 
+/// Deletes this device's currently-published Global Profile picture from
+/// the Blossom server — called on account deletion, since nothing will
+/// reference it again once the local profile is wiped. Best-effort: the
+/// caller should ignore failures (offline, server doesn't support delete,
+/// already gone).
+Future<void> deleteGlobalProfilePicture({
+  required String mnemonic,
+  required String pictureUrl,
+}) => RustLib.instance.api.crateApiGlobalChatDeleteGlobalProfilePicture(
+  mnemonic: mnemonic,
+  pictureUrl: pictureUrl,
+);
+
 /// Copies a freshly-picked Global Profile avatar into permanent per-device
 /// storage under a content-hash-suffixed filename — mirrors
 /// `account.rs::save_account_avatar`, so Flutter's path-keyed `ImageCache`
