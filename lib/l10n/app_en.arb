@@ -142,6 +142,7 @@
   "leaveChannelButton": "Leave",
   "leaveChannelConfirmTitle": "Leave channel?",
   "leaveChannelConfirmBody": "You'll stop seeing {channelName} in Talk. You can rejoin it later from Search.",
+  "joinedChannelsSectionTitle": "Channels",
   "newChannelTitle": "New channel",
   "channelNameLabel": "Channel name",
   "channelAboutLabel": "About (optional)",

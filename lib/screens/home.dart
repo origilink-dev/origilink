@@ -15,6 +15,7 @@ import 'package:origilink/screens/group_thread.dart';
 import 'package:origilink/screens/login.dart';
 import 'package:origilink/screens/logout.dart' show seedStorageKey;
 import 'package:origilink/screens/account_friends.dart';
+import 'package:origilink/screens/global_channel_profile.dart';
 import 'package:origilink/screens/global_chat_list.dart';
 import 'package:origilink/screens/global_chat_talk_tab.dart';
 import 'package:origilink/screens/global_profile_setup.dart';
@@ -63,6 +64,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _selectedIndex = 1;
   final _globalChatKey = GlobalKey<GlobalChatTalkTabState>();
+  final _globalProfileTabKey = GlobalKey<_GlobalProfileTabState>();
   late account_api.Account _profile = widget.profile;
 
   /// Shared between the Home and Talk tabs (index 0 and 1) — switching to
@@ -496,6 +498,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // placeholder unaffected by the toggle.
     final homeTab = _globalMode
         ? _GlobalProfileTab(
+            key: _globalProfileTabKey,
             globalPubkey: _globalPubkey,
             onEditProfile: _openGlobalProfileSetup,
           )
@@ -565,10 +568,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   MaterialPageRoute(builder: (_) => const GlobalChannelSearchScreen()),
                 );
                 _globalChatKey.currentState?.reload();
+                _globalProfileTabKey.currentState?.reload();
               },
               onCreateChannel: () async {
                 final created = await createGlobalChannel(context);
-                if (created) _globalChatKey.currentState?.reload();
+                if (created) {
+                  _globalChatKey.currentState?.reload();
+                  _globalProfileTabKey.currentState?.reload();
+                }
               },
             ),
             Expanded(child: tabs[_selectedIndex]),
@@ -767,59 +774,175 @@ class _HomeTopBar extends StatelessWidget {
 
 /// Home tab's Global-mode content: this device's Global Chat identity
 /// (separate from the private account identity — see `global_chat.rs`)
-/// plus, eventually, the channels it's active in. Channel membership isn't
-/// tracked anywhere yet, so for now this is just the identity card with an
-/// edit entry point; [GlobalChatListTab] (reached via the Talk tab's Global
-/// mode) is still where channels are actually browsed/joined.
-class _GlobalProfileTab extends StatelessWidget {
-  const _GlobalProfileTab({required this.globalPubkey, required this.onEditProfile});
+/// plus the channels it's joined, styled and behaving like
+/// `account_friends.dart`'s friends list (tap → a profile-style screen with
+/// a "Talk" button) — the Global-mode counterpart of the Private Home tab.
+/// Shares its data with `GlobalChatTalkTab` (Talk's Global mode) via
+/// `global_chat.rs`'s joined-channels store, just presented as a directory
+/// here instead of a message-preview list.
+class _GlobalProfileTab extends StatefulWidget {
+  const _GlobalProfileTab({required this.globalPubkey, required this.onEditProfile, super.key});
 
   final String? globalPubkey;
   final VoidCallback onEditProfile;
 
   @override
+  State<_GlobalProfileTab> createState() => _GlobalProfileTabState();
+}
+
+class _GlobalProfileTabState extends State<_GlobalProfileTab> {
+  List<global_chat_api.GlobalChannel> _channels = [];
+
+  @override
+  void initState() {
+    super.initState();
+    reload();
+  }
+
+  Future<void> reload() async {
+    final storageDir = await getApplicationDocumentsDirectory();
+    final channels = await global_chat_api.listJoinedChannels(storageDir: storageDir.path);
+    if (!mounted) return;
+    setState(() => _channels = channels);
+  }
+
+  Future<void> _openChannelProfile(global_chat_api.GlobalChannel channel) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => GlobalChannelProfileScreen(channel: channel)),
+    );
+    reload();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: OrigilinkColors.surface,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            children: [
-              const CircleAvatar(
-                radius: 28,
-                backgroundColor: OrigilinkColors.background,
-                child: Icon(Icons.public, color: OrigilinkColors.textSecondary),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      l10n.globalProfileSetupTitle,
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-                    ),
-                    if (globalPubkey != null) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        '${globalPubkey!.substring(0, 16)}…',
-                        style: const TextStyle(color: OrigilinkColors.textSecondary, fontSize: 12),
-                      ),
-                    ],
-                  ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: OrigilinkColors.surface,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              children: [
+                const CircleAvatar(
+                  radius: 28,
+                  backgroundColor: OrigilinkColors.background,
+                  child: Icon(Icons.public, color: OrigilinkColors.textSecondary),
                 ),
-              ),
-              IconButton(icon: const Icon(Icons.edit_outlined), onPressed: onEditProfile),
-            ],
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.globalProfileSetupTitle,
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                      ),
+                      if (widget.globalPubkey != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          '${widget.globalPubkey!.substring(0, 16)}…',
+                          style: const TextStyle(color: OrigilinkColors.textSecondary, fontSize: 12),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                IconButton(icon: const Icon(Icons.edit_outlined), onPressed: widget.onEditProfile),
+              ],
+            ),
           ),
-        ),
-      ],
+          const SizedBox(height: 24),
+          Text(
+            l10n.joinedChannelsSectionTitle,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: OrigilinkColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: reload,
+              child: _channels.isEmpty
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: [
+                        SizedBox(
+                          height: 320,
+                          child: Center(
+                            child: Text(
+                              l10n.noJoinedChannelsYet,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: OrigilinkColors.textSecondary),
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : ListView.separated(
+                      itemCount: _channels.length,
+                      separatorBuilder: (context, index) => const Divider(
+                        height: 1,
+                        indent: 82,
+                        color: Color(0x14000000),
+                      ),
+                      itemBuilder: (context, index) {
+                        final channel = _channels[index];
+                        return InkWell(
+                          onTap: () => _openChannelProfile(channel),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            child: Row(
+                              children: [
+                                const CircleAvatar(
+                                  radius: 28,
+                                  backgroundColor: OrigilinkColors.surface,
+                                  child: Icon(Icons.tag, color: OrigilinkColors.textSecondary),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        channel.name.isEmpty ? l10n.untitledChannel : channel.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                          color: OrigilinkColors.textPrimary,
+                                        ),
+                                      ),
+                                      if (channel.about.isNotEmpty) ...[
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          channel.about,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(color: OrigilinkColors.textSecondary),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

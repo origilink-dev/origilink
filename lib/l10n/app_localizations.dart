@@ -650,6 +650,12 @@ abstract class AppLocalizations {
   /// **'You\'ll stop seeing {channelName} in Talk. You can rejoin it later from Search.'**
   String leaveChannelConfirmBody(Object channelName);
 
+  /// No description provided for @joinedChannelsSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Channels'**
+  String get joinedChannelsSectionTitle;
+
   /// No description provided for @newChannelTitle.
   ///
   /// In en, this message translates to:
