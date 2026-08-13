@@ -656,6 +656,12 @@ abstract class AppLocalizations {
   /// **'Channels'**
   String get joinedChannelsSectionTitle;
 
+  /// No description provided for @noChannelAbout.
+  ///
+  /// In en, this message translates to:
+  /// **'No description'**
+  String get noChannelAbout;
+
   /// No description provided for @newChannelTitle.
   ///
   /// In en, this message translates to:

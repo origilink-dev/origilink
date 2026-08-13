@@ -93,6 +93,7 @@
   "leaveChannelConfirmTitle": "チャンネルを退出しますか？",
   "leaveChannelConfirmBody": "{channelName} がトークに表示されなくなります。検索から後で再参加できます。",
   "joinedChannelsSectionTitle": "チャンネル",
+  "noChannelAbout": "説明なし",
   "newChannelTitle": "新しいチャンネル",
   "channelNameLabel": "チャンネル名",
   "channelAboutLabel": "説明(任意)",

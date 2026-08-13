@@ -317,6 +317,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get joinedChannelsSectionTitle => 'Channels';
 
   @override
+  String get noChannelAbout => 'No description';
+
+  @override
   String get newChannelTitle => 'New channel';
 
   @override

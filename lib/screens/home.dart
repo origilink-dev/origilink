@@ -491,6 +491,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  Future<void> _addChannel(BuildContext context) async {
+    final changed = await showGlobalChannelAddMenu(context);
+    if (!changed) return;
+    _globalChatKey.currentState?.reload();
+    _globalProfileTabKey.currentState?.reload();
+  }
+
   @override
   Widget build(BuildContext context) {
     // index 0 (Home) and index 1 (Talk) each render one of two widgets
@@ -563,20 +570,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               onGlobalModeChanged: (value) => setState(() => _globalMode = value),
               privateBadgeCount: _pendingRequestCount + _talkUnreadTotal,
               isGlobalTab: _globalMode && _selectedIndex == 1,
-              onSearchChannels: () async {
-                await Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const GlobalChannelSearchScreen()),
-                );
-                _globalChatKey.currentState?.reload();
-                _globalProfileTabKey.currentState?.reload();
-              },
-              onCreateChannel: () async {
-                final created = await createGlobalChannel(context);
-                if (created) {
-                  _globalChatKey.currentState?.reload();
-                  _globalProfileTabKey.currentState?.reload();
-                }
-              },
+              onAddChannel: () => _addChannel(context),
             ),
             Expanded(child: tabs[_selectedIndex]),
           ],
@@ -604,8 +598,7 @@ class _HomeTopBar extends StatelessWidget {
     required this.pendingRequestCount,
     required this.isTalkTab,
     required this.isGlobalTab,
-    required this.onSearchChannels,
-    required this.onCreateChannel,
+    required this.onAddChannel,
     required this.showModeToggle,
     required this.isGlobalMode,
     required this.onGlobalModeChanged,
@@ -623,11 +616,10 @@ class _HomeTopBar extends StatelessWidget {
   /// instead of jumping straight to add-friend.
   final bool isTalkTab;
 
-  /// True on the Talk tab while in Global mode — the "+" icon becomes a
-  /// menu with "search channels" / "create channel" instead.
+  /// True on the Talk tab while in Global mode — the "+" icon opens
+  /// [showGlobalChannelAddMenu] instead of the Private add-friend menu.
   final bool isGlobalTab;
-  final VoidCallback onSearchChannels;
-  final VoidCallback onCreateChannel;
+  final VoidCallback onAddChannel;
 
   /// Whether the Private/Global segmented toggle applies to the currently
   /// visible tab (Home or Talk) — false on the Timeline placeholder tab.
@@ -680,36 +672,6 @@ class _HomeTopBar extends StatelessWidget {
     }
   }
 
-  Future<void> _showGlobalAddMenu(BuildContext context) async {
-    final l10n = AppLocalizations.of(context)!;
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: OrigilinkColors.background,
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.search),
-              title: Text(l10n.searchChannelsTitle),
-              onTap: () => Navigator.of(sheetContext).pop('search'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.add_comment_outlined),
-              title: Text(l10n.createChannelMenuTitle),
-              onTap: () => Navigator.of(sheetContext).pop('create'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (choice == 'search') {
-      onSearchChannels();
-    } else if (choice == 'create') {
-      onCreateChannel();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -734,7 +696,7 @@ class _HomeTopBar extends StatelessWidget {
                   badgeCount: pendingRequestCount,
                 )
               else if (isGlobalTab)
-                _topBarIcon(Icons.add, () => _showGlobalAddMenu(context))
+                _topBarIcon(Icons.add, onAddChannel)
               else if (!isGlobalMode)
                 _topBarIcon(
                   Icons.person_add_alt_outlined,
@@ -813,6 +775,11 @@ class _GlobalProfileTabState extends State<_GlobalProfileTab> {
     reload();
   }
 
+  Future<void> _addChannel(BuildContext context) async {
+    final changed = await showGlobalChannelAddMenu(context);
+    if (changed) reload();
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -881,13 +848,46 @@ class _GlobalProfileTabState extends State<_GlobalProfileTab> {
             ),
           ),
           const SizedBox(height: 24),
-          Text(
-            l10n.joinedChannelsSectionTitle,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: OrigilinkColors.textSecondary,
+          if (_channels.isEmpty) ...[
+            SizedBox(
+              height: 48,
+              child: OutlinedButton.icon(
+                onPressed: () => _addChannel(context),
+                icon: const Icon(Icons.search, size: 22),
+                label: Text(
+                  l10n.searchChannelsTitle,
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: OrigilinkColors.primaryDark,
+                  side: const BorderSide(color: OrigilinkColors.primary, width: 1.2),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
             ),
+            const SizedBox(height: 24),
+          ],
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                l10n.joinedChannelsSectionTitle,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: OrigilinkColors.textSecondary,
+                ),
+              ),
+              if (_channels.isNotEmpty)
+                IconButton(
+                  onPressed: () => _addChannel(context),
+                  icon: const Icon(
+                    Icons.add_comment_outlined,
+                    size: 20,
+                    color: OrigilinkColors.textSecondary,
+                  ),
+                ),
+            ],
           ),
           const SizedBox(height: 4),
           Expanded(
@@ -944,15 +944,13 @@ class _GlobalProfileTabState extends State<_GlobalProfileTab> {
                                           color: OrigilinkColors.textPrimary,
                                         ),
                                       ),
-                                      if (channel.about.isNotEmpty) ...[
-                                        const SizedBox(height: 3),
-                                        Text(
-                                          channel.about,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(color: OrigilinkColors.textSecondary),
-                                        ),
-                                      ],
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        channel.about.isNotEmpty ? channel.about : l10n.noChannelAbout,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(color: OrigilinkColors.textSecondary),
+                                      ),
                                     ],
                                   ),
                                 ),

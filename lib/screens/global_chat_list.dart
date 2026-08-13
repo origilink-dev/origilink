@@ -91,6 +91,51 @@ Future<bool> createGlobalChannel(BuildContext context) async {
   return true;
 }
 
+/// Shared "search channels" / "create channel" bottom sheet — the same
+/// choice offered from Talk's Global "+" menu, reused as-is by any other
+/// Global entry point (e.g. Home's joined-channels section) so the two
+/// actions aren't implemented twice. Returns true if a channel was joined
+/// (via search) or created, so the caller knows to refresh its list.
+Future<bool> showGlobalChannelAddMenu(BuildContext context) async {
+  final l10n = AppLocalizations.of(context)!;
+  final choice = await showModalBottomSheet<String>(
+    context: context,
+    backgroundColor: OrigilinkColors.background,
+    builder: (sheetContext) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.search),
+            title: Text(l10n.searchChannelsTitle),
+            onTap: () => Navigator.of(sheetContext).pop('search'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.add_comment_outlined),
+            title: Text(l10n.createChannelMenuTitle),
+            onTap: () => Navigator.of(sheetContext).pop('create'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (choice == 'search') {
+    if (!context.mounted) return false;
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const GlobalChannelSearchScreen()),
+    );
+    // Search always reloads its own state on channel open (joining); the
+    // caller can't tell from here whether a join actually happened, so it
+    // conservatively reloads too — cheap (local file read), unlike a relay
+    // round-trip.
+    return true;
+  } else if (choice == 'create') {
+    if (!context.mounted) return false;
+    return createGlobalChannel(context);
+  }
+  return false;
+}
+
 /// Browse/search every NIP-28 channel visible on the configured relays —
 /// reached from Talk's Global-mode "+" menu, distinct from the Talk list
 /// itself (which only shows channels already joined, see
