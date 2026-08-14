@@ -293,14 +293,40 @@ class AppLocalizationsEn extends AppLocalizations {
       'Set up a Global Profile first to use Global Chat.';
 
   @override
+  String get avatarCropFailed =>
+      'Couldn\'t crop that image. Please try another one.';
+
+  @override
+  String get talkAddSearchGlobalChannel => 'Search Global channels';
+
+  @override
+  String get talkAddCreateGlobalChannel => 'Create a Global channel';
+
+  @override
+  String get globalChannelBadge => 'Global';
+
+  @override
+  String get todayLabel => 'Today';
+
+  @override
+  String get yesterdayLabel => 'Yesterday';
+
+  @override
+  String daysAgoLabel(int count) {
+    return '${count}d ago';
+  }
+
+  @override
   String get searchChannelsTitle => 'Search channels';
 
   @override
   String get createChannelMenuTitle => 'Create a channel';
 
   @override
-  String get noJoinedChannelsYet =>
-      'No channels yet — search to join one, or create your own';
+  String get noJoinedChannelsYet => 'No channels yet';
+
+  @override
+  String get noJoinedChannelsHint => 'Search to join one, or create your own';
 
   @override
   String get leaveChannelButton => 'Leave';

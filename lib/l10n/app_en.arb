@@ -136,9 +136,22 @@
   "globalProfileSetupCreate": "Create Global Profile",
   "globalProfileRequiredTitle": "Global Profile required",
   "globalProfileRequiredBody": "Set up a Global Profile first to use Global Chat.",
+  "avatarCropFailed": "Couldn't crop that image. Please try another one.",
+  "talkAddSearchGlobalChannel": "Search Global channels",
+  "talkAddCreateGlobalChannel": "Create a Global channel",
+  "globalChannelBadge": "Global",
+  "todayLabel": "Today",
+  "yesterdayLabel": "Yesterday",
+  "daysAgoLabel": "{count}d ago",
+  "@daysAgoLabel": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
   "searchChannelsTitle": "Search channels",
   "createChannelMenuTitle": "Create a channel",
-  "noJoinedChannelsYet": "No channels yet — search to join one, or create your own",
+  "noJoinedChannelsYet": "No channels yet",
+  "noJoinedChannelsHint": "Search to join one, or create your own",
   "leaveChannelButton": "Leave",
   "leaveChannelConfirmTitle": "Leave channel?",
   "leaveChannelConfirmBody": "You'll stop seeing {channelName} in Talk. You can rejoin it later from Search.",

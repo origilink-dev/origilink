@@ -19,6 +19,7 @@ import 'package:origilink/src/rust/api/friends.dart' as friends_api;
 import 'package:origilink/src/rust/api/ratchet.dart' as ratchet_api;
 import 'package:origilink/src/rust/api/sync.dart' as sync_api;
 import 'package:origilink/widgets/link_preview_card.dart';
+import 'package:origilink/widgets/relative_date.dart';
 
 /// WhatsApp-style chat wallpaper and bubble colors, layered on top of the
 /// app's greige palette rather than replacing it elsewhere.
@@ -1092,7 +1093,20 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                               : null;
                           final endOfGroup =
                               next == null || next.isMine != message.isMine;
-                          return _MessageBubble(
+                          final messageDate = DateTime.fromMillisecondsSinceEpoch(
+                            message.createdAt.toInt() * 1000,
+                          );
+                          final previousDate = previous == null
+                              ? null
+                              : DateTime.fromMillisecondsSinceEpoch(
+                                  previous.createdAt.toInt() * 1000,
+                                );
+                          final isNewDay =
+                              previousDate == null ||
+                              previousDate.year != messageDate.year ||
+                              previousDate.month != messageDate.month ||
+                              previousDate.day != messageDate.day;
+                          final bubble = _MessageBubble(
                             message: message,
                             showTail: endOfGroup,
                             topGap: startOfGroup,
@@ -1104,6 +1118,13 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                             friendPubkey: widget.friend.pubkey,
                             onAvatarTap: () => _openProfile(context),
                             onLongPress: () => _showMessageMenu(message),
+                          );
+                          if (!isNewDay) return bubble;
+                          return Column(
+                            children: [
+                              DateDividerChip(date: messageDate),
+                              bubble,
+                            ],
                           );
                         },
                       ),

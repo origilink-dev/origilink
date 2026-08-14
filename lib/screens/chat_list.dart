@@ -6,19 +6,28 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:origilink/l10n/app_localizations.dart';
 import 'package:origilink/screens/chat_thread.dart';
+import 'package:origilink/screens/global_chat_thread.dart';
 import 'package:origilink/screens/group_thread.dart';
 import 'package:origilink/screens/login.dart';
 import 'package:origilink/screens/logout.dart' show seedStorageKey;
 import 'package:origilink/services/ratchet_key.dart';
 import 'package:origilink/src/rust/api/chat.dart' as chat_api;
 import 'package:origilink/src/rust/api/friends.dart' as friends_api;
+import 'package:origilink/src/rust/api/global_chat.dart' as global_chat_api;
 import 'package:origilink/src/rust/api/groups.dart' as groups_api;
 import 'package:origilink/src/rust/api/ratchet.dart' as ratchet_api;
+import 'package:origilink/src/rust/api/relay.dart' as relay_api;
 import 'package:origilink/src/rust/api/sync.dart' as sync_api;
+import 'package:origilink/widgets/relative_date.dart';
 
 /// Talk tab body shown inside the home screen's bottom navigation: one row
-/// per friend (plus one per group), with a preview of the most recent
-/// message. Tapping a row opens the full thread.
+/// per friend, group, and joined Global channel — merged into a single
+/// list sorted by most recent activity (see [_TalkEntry]) rather than split
+/// behind the Private/Global toggle, since the toggle only needs to gate
+/// *posting identity* (Home tab), not *which conversations are visible*.
+/// Channels are loaded internally (like a self-contained
+/// `GlobalChatTalkTab` used to be) since, unlike friends/groups, nothing
+/// else on Home needs to share that state.
 class ChatListTab extends StatefulWidget {
   const ChatListTab({
     super.key,
@@ -65,12 +74,14 @@ class ChatListTab extends StatefulWidget {
   final Future<void> Function() onUnreadCountsChanged;
 
   @override
-  State<ChatListTab> createState() => _ChatListTabState();
+  State<ChatListTab> createState() => ChatListTabState();
 }
 
-class _ChatListTabState extends State<ChatListTab> {
+class ChatListTabState extends State<ChatListTab> {
   final Map<String, chat_api.ChatMessage?> _previews = {};
   final Map<String, groups_api.GroupChatMessage?> _groupPreviews = {};
+  List<global_chat_api.GlobalChannel> _channels = [];
+  final Map<String, global_chat_api.GlobalChannelMessage?> _channelPreviews = {};
   StreamSubscription<sync_api.FriendEvent>? _sub;
 
   @override
@@ -78,6 +89,7 @@ class _ChatListTabState extends State<ChatListTab> {
     super.initState();
     _loadPreviews();
     _loadGroupPreviews();
+    reloadChannels();
     _subscribe();
   }
 
@@ -182,6 +194,64 @@ class _ChatListTabState extends State<ChatListTab> {
     setState(() => _groupPreviews[groupId] = history.isEmpty ? null : history.last);
   }
 
+  /// Reloads joined Global channels — public so `home.dart` can trigger a
+  /// refresh after joining/creating/leaving one from elsewhere (mirrors the
+  /// old `GlobalChatTalkTabState.reload`).
+  Future<void> reloadChannels() async {
+    final storageDir = await getApplicationDocumentsDirectory();
+    final channels = await global_chat_api.listJoinedChannels(storageDir: storageDir.path);
+    if (!mounted) return;
+    setState(() => _channels = channels);
+    for (final channel in channels) {
+      unawaited(_loadChannelPreviewFor(channel.id));
+    }
+  }
+
+  Future<void> _loadChannelPreviewFor(String channelId) async {
+    final storageDir = await getApplicationDocumentsDirectory();
+    final relayList = await relay_api.loadRelayList(storageDir: storageDir.path);
+    final messages = await global_chat_api.loadChannelMessages(
+      relayUrls: relayList.urls,
+      channelId: channelId,
+      before: null,
+    );
+    if (!mounted) return;
+    setState(() => _channelPreviews[channelId] = messages.isEmpty ? null : messages.last);
+  }
+
+  Future<void> _openChannel(global_chat_api.GlobalChannel channel) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => GlobalChatThreadScreen(channel: channel)),
+    );
+    _loadChannelPreviewFor(channel.id);
+  }
+
+  Future<void> _leaveChannel(global_chat_api.GlobalChannel channel) async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.leaveChannelConfirmTitle),
+        content: Text(l10n.leaveChannelConfirmBody(channel.name)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(MaterialLocalizations.of(dialogContext).cancelButtonLabel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+            child: Text(l10n.leaveChannelButton),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final storageDir = await getApplicationDocumentsDirectory();
+    await global_chat_api.leaveChannel(storageDir: storageDir.path, channelId: channel.id);
+    await reloadChannels();
+  }
+
   Future<void> _openGroupThread(groups_api.Group group) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -258,10 +328,87 @@ class _ChatListTabState extends State<ChatListTab> {
     unawaited(widget.onUnreadCountsChanged());
   }
 
+  /// Builds one row per group/friend/channel and sorts them by most recent
+  /// activity (no-preview entries sink to the bottom, in their original
+  /// order) — this is what actually merges Private and Global content into
+  /// one list instead of relying on index arithmetic across three sources.
+  List<_TalkEntry> _buildEntries(AppLocalizations l10n) {
+    final entries = <_TalkEntry>[];
+    for (final group in widget.groups) {
+      final preview = _groupPreviews[group.id];
+      entries.add(
+        _TalkEntry(
+          previewTime: preview?.createdAt.toInt(),
+          avatar: const CircleAvatar(
+            radius: 28,
+            backgroundColor: OrigilinkColors.surface,
+            child: Icon(Icons.groups_outlined, color: OrigilinkColors.textSecondary),
+          ),
+          title: group.name,
+          previewText: preview == null
+              ? l10n.noMessagesYet
+              : (preview.isMine ? '${l10n.youLabel}: ' : '${preview.senderName}: ') + preview.content,
+          onTap: () => _openGroupThread(group),
+        ),
+      );
+    }
+    for (final friend in widget.friends) {
+      final preview = _previews[friend.pubkey];
+      final unread = widget.unreadCounts[friend.pubkey] ?? 0;
+      final hasAvatar = friend.avatarPath != null && File(friend.avatarPath!).existsSync();
+      entries.add(
+        _TalkEntry(
+          previewTime: preview?.createdAt.toInt(),
+          avatar: CircleAvatar(
+            radius: 28,
+            backgroundColor: OrigilinkColors.surface,
+            backgroundImage: hasAvatar ? FileImage(File(friend.avatarPath!)) : null,
+            child: hasAvatar
+                ? null
+                : const Icon(Icons.person_outline, color: OrigilinkColors.textSecondary),
+          ),
+          title: friend.displayName,
+          previewText: preview == null
+              ? l10n.noMessagesYet
+              : (preview.isDeleted ? l10n.messageUnsentLabel : preview.content),
+          unreadCount: unread,
+          onTap: () => _openThread(friend),
+          onLongPress: () => _showChatMenu(friend),
+        ),
+      );
+    }
+    for (final channel in _channels) {
+      final preview = _channelPreviews[channel.id];
+      entries.add(
+        _TalkEntry(
+          previewTime: preview?.createdAt.toInt(),
+          avatar: const CircleAvatar(
+            radius: 28,
+            backgroundColor: OrigilinkColors.surface,
+            child: Icon(Icons.tag, color: OrigilinkColors.textSecondary),
+          ),
+          title: channel.name.isEmpty ? l10n.untitledChannel : channel.name,
+          previewText: preview == null ? l10n.noChannelMessagesYet : preview.content,
+          isGlobal: true,
+          onTap: () => _openChannel(channel),
+          onLongPress: () => _leaveChannel(channel),
+        ),
+      );
+    }
+    entries.sort((a, b) {
+      if (a.previewTime == null && b.previewTime == null) return 0;
+      if (a.previewTime == null) return 1;
+      if (b.previewTime == null) return -1;
+      return b.previewTime!.compareTo(a.previewTime!);
+    });
+    return entries;
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    if (widget.friends.isEmpty && widget.groups.isEmpty) {
+    final entries = _buildEntries(l10n);
+    if (entries.isEmpty) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -295,104 +442,71 @@ class _ChatListTabState extends State<ChatListTab> {
 
     return ListView.separated(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      itemCount: widget.groups.length + widget.friends.length,
+      itemCount: entries.length,
       separatorBuilder: (context, index) => const Divider(
         height: 1,
         indent: 82,
         color: Color(0x14000000),
       ),
       itemBuilder: (context, index) {
-        if (index < widget.groups.length) {
-          final group = widget.groups[index];
-          final preview = _groupPreviews[group.id];
-          return InkWell(
-            onTap: () => _openGroupThread(group),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              child: Row(
-                children: [
-                  const CircleAvatar(
-                    radius: 28,
-                    backgroundColor: OrigilinkColors.surface,
-                    child: Icon(Icons.groups_outlined, color: OrigilinkColors.textSecondary),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          group.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: OrigilinkColors.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          preview == null
-                              ? l10n.noMessagesYet
-                              : (preview.isMine ? '${l10n.youLabel}: ' : '${preview.senderName}: ') +
-                                    preview.content,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: OrigilinkColors.textSecondary),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-        final friend = widget.friends[index - widget.groups.length];
-        final preview = _previews[friend.pubkey];
-        final unread = widget.unreadCounts[friend.pubkey] ?? 0;
-        final hasAvatar = friend.avatarPath != null && File(friend.avatarPath!).existsSync();
+        final entry = entries[index];
         return InkWell(
-          onTap: () => _openThread(friend),
-          onLongPress: () => _showChatMenu(friend),
+          onTap: entry.onTap,
+          onLongPress: entry.onLongPress,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             child: Row(
               children: [
-                CircleAvatar(
-                  radius: 28,
-                  backgroundColor: OrigilinkColors.surface,
-                  backgroundImage: hasAvatar ? FileImage(File(friend.avatarPath!)) : null,
-                  child: hasAvatar
-                      ? null
-                      : const Icon(Icons.person_outline, color: OrigilinkColors.textSecondary),
-                ),
+                entry.avatar,
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        friend.displayName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: OrigilinkColors.textPrimary,
-                        ),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              entry.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: OrigilinkColors.textPrimary,
+                              ),
+                            ),
+                          ),
+                          if (entry.isGlobal) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: OrigilinkColors.primary.withValues(alpha: 0.25),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                l10n.globalChannelBadge,
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: OrigilinkColors.primaryDark,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        preview == null
-                            ? l10n.noMessagesYet
-                            : (preview.isDeleted ? l10n.messageUnsentLabel : preview.content),
+                        entry.previewText,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: unread > 0 ? OrigilinkColors.textPrimary : OrigilinkColors.textSecondary,
-                          fontWeight: unread > 0 ? FontWeight.w600 : FontWeight.normal,
+                          color: entry.unreadCount > 0
+                              ? OrigilinkColors.textPrimary
+                              : OrigilinkColors.textSecondary,
+                          fontWeight: entry.unreadCount > 0 ? FontWeight.w600 : FontWeight.normal,
                         ),
                       ),
                     ],
@@ -402,19 +516,19 @@ class _ChatListTabState extends State<ChatListTab> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    if (preview != null)
+                    if (entry.previewTime != null)
                       Text(
-                        _formatPreviewTime(preview.createdAt.toInt()),
+                        _formatPreviewTime(l10n, entry.previewTime!),
                         style: TextStyle(
                           fontSize: 12,
-                          color: unread > 0
+                          color: entry.unreadCount > 0
                               ? OrigilinkColors.primaryDark
                               : OrigilinkColors.textSecondary.withValues(alpha: 0.8),
-                          fontWeight: unread > 0 ? FontWeight.w600 : FontWeight.normal,
+                          fontWeight: entry.unreadCount > 0 ? FontWeight.w600 : FontWeight.normal,
                         ),
                       ),
                     const SizedBox(height: 6),
-                    if (unread > 0)
+                    if (entry.unreadCount > 0)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         constraints: const BoxConstraints(minWidth: 20),
@@ -423,7 +537,7 @@ class _ChatListTabState extends State<ChatListTab> {
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Text(
-                          unread >= 99 ? '99+' : '$unread',
+                          entry.unreadCount >= 99 ? '99+' : '${entry.unreadCount}',
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: Colors.white,
@@ -442,13 +556,45 @@ class _ChatListTabState extends State<ChatListTab> {
     );
   }
 
-  String _formatPreviewTime(int epochSeconds) {
+  /// Today shows a clock time; anything older defers to [relativeDayLabel]
+  /// — a bare "3/15" forces the reader to work out how long ago that
+  /// actually was, which defeats the point of a preview.
+  String _formatPreviewTime(AppLocalizations l10n, int epochSeconds) {
     final dt = DateTime.fromMillisecondsSinceEpoch(epochSeconds * 1000);
     final now = DateTime.now();
     final isToday = dt.year == now.year && dt.month == now.month && dt.day == now.day;
     if (isToday) {
       return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
     }
-    return '${dt.month}/${dt.day}';
+    return relativeDayLabel(l10n, dt, now: now);
   }
+}
+
+/// One row's worth of display data, computed uniformly from a friend,
+/// group, or Global channel so [ChatListTabState._buildEntries] can sort
+/// and render all three the same way.
+class _TalkEntry {
+  const _TalkEntry({
+    required this.previewTime,
+    required this.avatar,
+    required this.title,
+    required this.previewText,
+    required this.onTap,
+    this.unreadCount = 0,
+    this.isGlobal = false,
+    this.onLongPress,
+  });
+
+  final int? previewTime;
+  final Widget avatar;
+  final String title;
+  final String previewText;
+  final int unreadCount;
+
+  /// True for Global channel rows — shown with a small "Global" tag next
+  /// to the title so a merged Private+Global list stays legible without
+  /// the old Private/Global toggle to tell them apart implicitly.
+  final bool isGlobal;
+  final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 }

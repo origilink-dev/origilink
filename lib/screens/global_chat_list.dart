@@ -137,11 +137,11 @@ Future<bool> showGlobalChannelAddMenu(BuildContext context) async {
 }
 
 /// Browse/search every NIP-28 channel visible on the configured relays —
-/// reached from Talk's Global-mode "+" menu, distinct from the Talk list
-/// itself (which only shows channels already joined, see
-/// `GlobalChatTalkTab`). Opening a channel from here joins it (mirrors
-/// `chat_list.dart`'s "opening a friend's thread marks it started"
-/// convention), so there's no separate join button.
+/// reached from Talk's "+" menu, distinct from the Talk list itself (which
+/// only shows channels already joined, see `chat_list.dart`'s
+/// `ChatListTabState.reloadChannels`). Opening a channel from here joins it
+/// (mirrors `chat_list.dart`'s "opening a friend's thread marks it
+/// started" convention), so there's no separate join button.
 class GlobalChannelSearchScreen extends StatefulWidget {
   const GlobalChannelSearchScreen({super.key});
 
@@ -218,35 +218,37 @@ class _GlobalChannelSearchScreenState extends State<GlobalChannelSearchScreen> {
           : _visibleChannels.isEmpty
           ? RefreshIndicator(
               onRefresh: _load,
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                children: [
-                  SizedBox(
-                    height: 320,
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.tag,
-                            size: 48,
-                            color: OrigilinkColors.textSecondary.withValues(alpha: 0.5),
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            l10n.noChannelsYet,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                              color: OrigilinkColors.textSecondary,
+              child: LayoutBuilder(
+                builder: (context, constraints) => ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: [
+                    ConstrainedBox(
+                      constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.tag,
+                              size: 48,
+                              color: OrigilinkColors.textSecondary.withValues(alpha: 0.5),
                             ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
+                            const SizedBox(height: 12),
+                            Text(
+                              l10n.noChannelsYet,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                                color: OrigilinkColors.textSecondary,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             )
           : RefreshIndicator(

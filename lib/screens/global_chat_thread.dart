@@ -9,6 +9,7 @@ import 'package:origilink/screens/login.dart';
 import 'package:origilink/screens/logout.dart' show seedStorageKey;
 import 'package:origilink/src/rust/api/global_chat.dart' as global_chat_api;
 import 'package:origilink/src/rust/api/relay.dart' as relay_api;
+import 'package:origilink/widgets/relative_date.dart';
 import 'package:origilink/widgets/link_preview_card.dart';
 
 /// Same WhatsApp-style bubble/wallpaper palette as `chat_thread.dart`'s
@@ -243,13 +244,35 @@ class _GlobalChatThreadScreenState extends State<GlobalChatThreadScreen> {
                           }
                           // `_messages` is oldest-first; the reversed list
                           // needs newest-first indexing.
-                          final message = _messages[_messages.length - 1 - index];
+                          final reversedIndex = _messages.length - 1 - index;
+                          final message = _messages[reversedIndex];
                           final isMine = message.senderPubkey == _myPubkey;
-                          return _ChannelMessageBubble(
+                          final bubble = _ChannelMessageBubble(
                             message: message,
                             isMine: isMine,
                             profile: _profiles[message.senderPubkey],
                             formatTime: _formatTime,
+                          );
+                          final messageDate = DateTime.fromMillisecondsSinceEpoch(
+                            message.createdAt.toInt() * 1000,
+                          );
+                          final previous = reversedIndex > 0 ? _messages[reversedIndex - 1] : null;
+                          final previousDate = previous == null
+                              ? null
+                              : DateTime.fromMillisecondsSinceEpoch(
+                                  previous.createdAt.toInt() * 1000,
+                                );
+                          final isNewDay =
+                              previousDate == null ||
+                              previousDate.year != messageDate.year ||
+                              previousDate.month != messageDate.month ||
+                              previousDate.day != messageDate.day;
+                          if (!isNewDay) return bubble;
+                          return Column(
+                            children: [
+                              DateDividerChip(date: messageDate),
+                              bubble,
+                            ],
                           );
                         },
                       ),

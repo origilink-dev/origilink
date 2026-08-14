@@ -614,6 +614,48 @@ abstract class AppLocalizations {
   /// **'Set up a Global Profile first to use Global Chat.'**
   String get globalProfileRequiredBody;
 
+  /// No description provided for @avatarCropFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t crop that image. Please try another one.'**
+  String get avatarCropFailed;
+
+  /// No description provided for @talkAddSearchGlobalChannel.
+  ///
+  /// In en, this message translates to:
+  /// **'Search Global channels'**
+  String get talkAddSearchGlobalChannel;
+
+  /// No description provided for @talkAddCreateGlobalChannel.
+  ///
+  /// In en, this message translates to:
+  /// **'Create a Global channel'**
+  String get talkAddCreateGlobalChannel;
+
+  /// No description provided for @globalChannelBadge.
+  ///
+  /// In en, this message translates to:
+  /// **'Global'**
+  String get globalChannelBadge;
+
+  /// No description provided for @todayLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get todayLabel;
+
+  /// No description provided for @yesterdayLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Yesterday'**
+  String get yesterdayLabel;
+
+  /// No description provided for @daysAgoLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'{count}d ago'**
+  String daysAgoLabel(int count);
+
   /// No description provided for @searchChannelsTitle.
   ///
   /// In en, this message translates to:
@@ -629,8 +671,14 @@ abstract class AppLocalizations {
   /// No description provided for @noJoinedChannelsYet.
   ///
   /// In en, this message translates to:
-  /// **'No channels yet — search to join one, or create your own'**
+  /// **'No channels yet'**
   String get noJoinedChannelsYet;
+
+  /// No description provided for @noJoinedChannelsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search to join one, or create your own'**
+  String get noJoinedChannelsHint;
 
   /// No description provided for @leaveChannelButton.
   ///

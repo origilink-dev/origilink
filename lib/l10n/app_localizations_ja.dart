@@ -290,13 +290,39 @@ class AppLocalizationsJa extends AppLocalizations {
       'グローバルチャットを使うには、先にグローバルプロフィールを作成してください。';
 
   @override
+  String get avatarCropFailed => '画像を切り抜けませんでした。別の画像でお試しください。';
+
+  @override
+  String get talkAddSearchGlobalChannel => 'グローバルチャンネルを検索';
+
+  @override
+  String get talkAddCreateGlobalChannel => 'グローバルチャンネルを作成';
+
+  @override
+  String get globalChannelBadge => 'グローバル';
+
+  @override
+  String get todayLabel => '今日';
+
+  @override
+  String get yesterdayLabel => '昨日';
+
+  @override
+  String daysAgoLabel(int count) {
+    return '$count日前';
+  }
+
+  @override
   String get searchChannelsTitle => 'チャンネルを検索';
 
   @override
   String get createChannelMenuTitle => 'チャンネルを作成';
 
   @override
-  String get noJoinedChannelsYet => 'まだチャンネルがありません。検索して参加するか、新しく作成してください';
+  String get noJoinedChannelsYet => 'まだチャンネルがありません';
+
+  @override
+  String get noJoinedChannelsHint => '検索して参加するか、新しく作成してください';
 
   @override
   String get leaveChannelButton => '退出';

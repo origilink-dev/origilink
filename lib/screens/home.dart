@@ -18,7 +18,6 @@ import 'package:origilink/screens/logout.dart' show seedStorageKey;
 import 'package:origilink/screens/account_friends.dart';
 import 'package:origilink/screens/global_channel_profile.dart';
 import 'package:origilink/screens/global_chat_list.dart';
-import 'package:origilink/screens/global_chat_talk_tab.dart';
 import 'package:origilink/screens/global_profile_setup.dart';
 import 'package:origilink/screens/settings.dart';
 import 'package:origilink/services/account_sync.dart';
@@ -34,11 +33,15 @@ import 'package:origilink/widgets/private_global_toggle.dart';
 
 /// Home screen shown after profile setup. Hosts three sections behind a
 /// bottom navigation bar: Profile & Friends, Talk, and Timeline (a
-/// placeholder for a future feature). Private/Global Chat aren't separate
-/// destinations — a shared [PrivateGlobalToggle] in the top bar switches
-/// both the Profile & Friends and Talk tabs between their private (friends/
-/// groups, encrypted) and Global (NIP-28 channels, open) content, so the
-/// two trust models never get visually mixed into one list.
+/// placeholder for a future feature). The [PrivateGlobalToggle] in the top
+/// bar only applies to Profile & Friends — it picks which *posting
+/// identity* (private account vs. Global Chat identity) you're managing,
+/// since those two profiles/friend-lists genuinely can't share a screen.
+/// Talk is deliberately NOT behind the toggle: friends, groups, and joined
+/// Global channels are private/public in the *protocol* sense (still
+/// unlinkable identities, see `keys.rs`), but there's no reason a user
+/// should have to remember which mode they're in just to find a
+/// conversation, so `chat_list.dart` merges all three into one list.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
@@ -64,7 +67,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _selectedIndex = 1;
-  final _globalChatKey = GlobalKey<GlobalChatTalkTabState>();
+  final _globalChatKey = GlobalKey<ChatListTabState>();
   final _globalProfileTabKey = GlobalKey<_GlobalProfileTabState>();
   late account_api.Account _profile = widget.profile;
 
@@ -536,10 +539,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _addChannel(BuildContext context) async {
-    final changed = await showGlobalChannelAddMenu(context);
-    if (!changed) return;
-    _globalChatKey.currentState?.reload();
+  Future<void> _searchGlobalChannel(BuildContext context) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const GlobalChannelSearchScreen()),
+    );
+    _globalChatKey.currentState?.reloadChannels();
+    _globalProfileTabKey.currentState?.reload();
+  }
+
+  Future<void> _createGlobalChannel(BuildContext context) async {
+    final created = await createGlobalChannel(context);
+    if (!created) return;
+    _globalChatKey.currentState?.reloadChannels();
     _globalProfileTabKey.currentState?.reload();
   }
 
@@ -578,36 +589,36 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       ],
     );
-    final talkStack = IndexedStack(
-      index: _globalMode ? 1 : 0,
-      children: [
-        ChatListTab(
-          // Only friends with a started (or already-in-progress) chat show
-          // up here — tapping "Talk" on a friend's profile is what starts
-          // one, rather than every friend appearing by default.
-          friends: _friends.where((f) => _activeChatPubkeys.contains(f.pubkey)).toList(),
-          groups: _groups,
-          messageEvents: _friendEventsStream,
-          onToggleFavorite: _toggleFavorite,
-          onBlockFriend: _blockFriend,
-          onUnblockFriend: _unblockFriend,
-          onDeleteFriend: _deleteFriend,
-          onClearChat: _clearChat,
-          onGroupsChanged: () async {
-            await _loadGroups();
-            // A group leave/removal doesn't change *this* device's own group
-            // routing identity, but the roster-change convention already
-            // established in this codebase (see `_createGroup`) rebuilds the
-            // subscription watch list defensively after any roster mutation.
-            _subscribeFriendEvents();
-          },
-          unreadCounts: _unreadCounts,
-          onUnreadCountsChanged: _refreshUnreadCounts,
-        ),
-        GlobalChatTalkTab(key: _globalChatKey),
-      ],
+    // Talk is deliberately NOT behind the Private/Global toggle — see the
+    // module doc above. Friends, groups, and joined Global channels all
+    // show up in one merged, recency-sorted list (see `chat_list.dart`'s
+    // `_buildEntries`), same trust models as before, just not visually
+    // split behind a mode switch the user has to remember to flip.
+    final talkTab = ChatListTab(
+      key: _globalChatKey,
+      // Only friends with a started (or already-in-progress) chat show
+      // up here — tapping "Talk" on a friend's profile is what starts
+      // one, rather than every friend appearing by default.
+      friends: _friends.where((f) => _activeChatPubkeys.contains(f.pubkey)).toList(),
+      groups: _groups,
+      messageEvents: _friendEventsStream,
+      onToggleFavorite: _toggleFavorite,
+      onBlockFriend: _blockFriend,
+      onUnblockFriend: _unblockFriend,
+      onDeleteFriend: _deleteFriend,
+      onClearChat: _clearChat,
+      onGroupsChanged: () async {
+        await _loadGroups();
+        // A group leave/removal doesn't change *this* device's own group
+        // routing identity, but the roster-change convention already
+        // established in this codebase (see `_createGroup`) rebuilds the
+        // subscription watch list defensively after any roster mutation.
+        _subscribeFriendEvents();
+      },
+      unreadCounts: _unreadCounts,
+      onUnreadCountsChanged: _refreshUnreadCounts,
     );
-    final tabs = [homeStack, talkStack, const _TimelinePlaceholder()];
+    final tabs = [homeStack, talkTab, const _TimelinePlaceholder()];
 
     return Scaffold(
       backgroundColor: OrigilinkColors.background,
@@ -620,13 +631,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               onCreateTalkRoom: _createTalkRoom,
               onCreateGroup: _createGroup,
               pendingRequestCount: _pendingRequestCount,
-              isTalkTab: _selectedIndex == 1 && !_globalMode,
-              showModeToggle: _selectedIndex == 0 || _selectedIndex == 1,
+              isTalkTab: _selectedIndex == 1,
+              onSearchChannel: _searchGlobalChannel,
+              onCreateChannel: _createGlobalChannel,
+              // The mode toggle now only affects Home (which posting
+              // identity/profile you're managing) — Talk always shows
+              // everything, so the toggle would be a no-op there.
+              showModeToggle: _selectedIndex == 0,
               isGlobalMode: _globalMode,
               onGlobalModeChanged: _onGlobalModeChanged,
               privateBadgeCount: _pendingRequestCount + _talkUnreadTotal,
-              isGlobalTab: _globalMode && _selectedIndex == 1,
-              onAddChannel: () => _addChannel(context),
             ),
             Expanded(child: IndexedStack(index: _selectedIndex, children: tabs)),
           ],
@@ -653,8 +667,8 @@ class _HomeTopBar extends StatelessWidget {
     required this.onCreateGroup,
     required this.pendingRequestCount,
     required this.isTalkTab,
-    required this.isGlobalTab,
-    required this.onAddChannel,
+    required this.onSearchChannel,
+    required this.onCreateChannel,
     required this.showModeToggle,
     required this.isGlobalMode,
     required this.onGlobalModeChanged,
@@ -667,15 +681,14 @@ class _HomeTopBar extends StatelessWidget {
   final Future<void> Function(BuildContext context) onCreateGroup;
   final int pendingRequestCount;
 
-  /// On the Talk tab in Private mode, the usual "add friend" icon becomes a
-  /// plain "+" that opens a menu with talk room / group / friend creation
-  /// instead of jumping straight to add-friend.
+  /// On the Talk tab, the usual "add friend" icon becomes a plain "+" that
+  /// opens a menu with talk room / group / friend creation *and* Global
+  /// channel search/create — Talk shows both worlds merged (see
+  /// `chat_list.dart`), so its "+" menu offers every way to add a row to it
+  /// rather than being gated by the Private/Global toggle.
   final bool isTalkTab;
-
-  /// True on the Talk tab while in Global mode — the "+" icon opens
-  /// [showGlobalChannelAddMenu] instead of the Private add-friend menu.
-  final bool isGlobalTab;
-  final VoidCallback onAddChannel;
+  final Future<void> Function(BuildContext context) onSearchChannel;
+  final Future<void> Function(BuildContext context) onCreateChannel;
 
   /// Whether the Private/Global segmented toggle applies to the currently
   /// visible tab (Home or Talk) — false on the Timeline placeholder tab.
@@ -715,6 +728,16 @@ class _HomeTopBar extends StatelessWidget {
               title: Text(l10n.addFriendTitle),
               onTap: () => Navigator.of(sheetContext).pop('friend'),
             ),
+            ListTile(
+              leading: const Icon(Icons.tag),
+              title: Text(l10n.talkAddSearchGlobalChannel),
+              onTap: () => Navigator.of(sheetContext).pop('search-channel'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.add_comment_outlined),
+              title: Text(l10n.talkAddCreateGlobalChannel),
+              onTap: () => Navigator.of(sheetContext).pop('create-channel'),
+            ),
           ],
         ),
       ),
@@ -725,6 +748,10 @@ class _HomeTopBar extends StatelessWidget {
       onCreateTalkRoom(context);
     } else if (choice == 'group' && context.mounted) {
       onCreateGroup(context);
+    } else if (choice == 'search-channel' && context.mounted) {
+      await onSearchChannel(context);
+    } else if (choice == 'create-channel' && context.mounted) {
+      await onCreateChannel(context);
     }
   }
 
@@ -751,8 +778,6 @@ class _HomeTopBar extends StatelessWidget {
                   () => _showTalkAddMenu(context),
                   badgeCount: pendingRequestCount,
                 )
-              else if (isGlobalTab)
-                _topBarIcon(Icons.add, onAddChannel)
               else if (!isGlobalMode)
                 _topBarIcon(
                   Icons.person_add_alt_outlined,
@@ -795,7 +820,7 @@ class _HomeTopBar extends StatelessWidget {
 /// plus the channels it's joined, styled and behaving like
 /// `account_friends.dart`'s friends list (tap → a profile-style screen with
 /// a "Talk" button) — the Global-mode counterpart of the Private Home tab.
-/// Shares its data with `GlobalChatTalkTab` (Talk's Global mode) via
+/// Shares its data with `chat_list.dart`'s merged Talk list via
 /// `global_chat.rs`'s joined-channels store, just presented as a directory
 /// here instead of a message-preview list.
 class _GlobalProfileTab extends StatefulWidget {
@@ -967,20 +992,46 @@ class _GlobalProfileTabState extends State<_GlobalProfileTab> {
             child: RefreshIndicator(
               onRefresh: reload,
               child: _channels.isEmpty
-                  ? ListView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      children: [
-                        SizedBox(
-                          height: 320,
-                          child: Center(
-                            child: Text(
-                              l10n.noJoinedChannelsYet,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(color: OrigilinkColors.textSecondary),
+                  ? LayoutBuilder(
+                      builder: (context, constraints) => ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        children: [
+                          ConstrainedBox(
+                            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                            child: Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.tag,
+                                    size: 48,
+                                    color: OrigilinkColors.textSecondary.withValues(alpha: 0.5),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    l10n.noJoinedChannelsYet,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w500,
+                                      color: OrigilinkColors.textSecondary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    l10n.noJoinedChannelsHint,
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: OrigilinkColors.textSecondary.withValues(alpha: 0.7),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     )
                   : ListView.separated(
                       itemCount: _channels.length,
