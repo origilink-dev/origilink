@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:origilink/l10n/app_localizations.dart';
+import 'package:origilink/services/avatar_picker.dart';
 
 /// Greige-based color palette.
 class OrigilinkColors {
@@ -40,14 +40,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   }
 
   Future<void> _pickAvatar() async {
-    final picked = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 512,
-      maxHeight: 512,
-      imageQuality: 85,
-    );
-    if (picked == null) return;
-    setState(() => _avatarPath = picked.path);
+    final cropped = await pickAndCropAvatar(context);
+    if (cropped == null) return;
+    setState(() => _avatarPath = cropped);
   }
 
   void _handleContinue() {

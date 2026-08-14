@@ -2,11 +2,11 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:origilink/l10n/app_localizations.dart';
 import 'package:origilink/screens/login.dart';
 import 'package:origilink/screens/logout.dart' show seedStorageKey;
+import 'package:origilink/services/avatar_picker.dart';
 import 'package:origilink/src/rust/api/global_chat.dart' as global_chat_api;
 import 'package:origilink/src/rust/api/relay.dart' as relay_api;
 
@@ -53,14 +53,9 @@ class _GlobalProfileSetupScreenState extends State<GlobalProfileSetupScreen> {
   }
 
   Future<void> _pickAvatar() async {
-    final picked = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 512,
-      maxHeight: 512,
-      imageQuality: 85,
-    );
-    if (picked == null) return;
-    setState(() => _avatarPath = picked.path);
+    final cropped = await pickAndCropAvatar(context);
+    if (cropped == null) return;
+    setState(() => _avatarPath = cropped);
   }
 
   Future<void> _create() async {
@@ -92,6 +87,26 @@ class _GlobalProfileSetupScreenState extends State<GlobalProfileSetupScreen> {
     widget.onDone();
   }
 
+  void _showInfoDialog(BuildContext context, AppLocalizations l10n) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: OrigilinkColors.background,
+        title: Text(l10n.globalProfileSetupTitle),
+        content: Text(
+          l10n.globalProfileSetupBody,
+          style: const TextStyle(color: OrigilinkColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(MaterialLocalizations.of(dialogContext).okButtonLabel),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -102,6 +117,13 @@ class _GlobalProfileSetupScreenState extends State<GlobalProfileSetupScreen> {
         elevation: 0,
         foregroundColor: OrigilinkColors.textPrimary,
         title: Text(_isEditing ? l10n.editProfile : l10n.globalProfileSetupTitle),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            tooltip: l10n.globalProfileSetupTitle,
+            onPressed: () => _showInfoDialog(context, l10n),
+          ),
+        ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -109,13 +131,6 @@ class _GlobalProfileSetupScreenState extends State<GlobalProfileSetupScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (!_isEditing) ...[
-                Text(
-                  l10n.globalProfileSetupBody,
-                  style: const TextStyle(color: OrigilinkColors.textSecondary),
-                ),
-                const SizedBox(height: 24),
-              ],
               _buildAvatarPicker(),
               const SizedBox(height: 32),
               TextField(

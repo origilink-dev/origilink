@@ -48,7 +48,8 @@ dependencies:
   mime: ^2.0.0
   gal: ^2.3.0
   url_launcher: ^6.3.1
-
+  crop_your_image: ^2.0.0
+  image: ^4.9.1
 dev_dependencies:
   flutter_test:
     sdk: flutter

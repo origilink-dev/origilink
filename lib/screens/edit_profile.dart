@@ -3,12 +3,12 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:origilink/l10n/app_localizations.dart';
 import 'package:origilink/screens/login.dart';
 import 'package:origilink/screens/logout.dart' show seedStorageKey;
 import 'package:origilink/services/account_sync.dart';
+import 'package:origilink/services/avatar_picker.dart';
 import 'package:origilink/src/rust/api/account.dart' as account_api;
 
 /// Lets the user change their avatar, display name, and status message.
@@ -42,14 +42,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<void> _pickAvatar() async {
-    final picked = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 512,
-      maxHeight: 512,
-      imageQuality: 85,
-    );
-    if (picked == null) return;
-    setState(() => _avatarPath = picked.path);
+    final cropped = await pickAndCropAvatar(context);
+    if (cropped == null) return;
+    setState(() => _avatarPath = cropped);
   }
 
   Future<void> _handleSave() async {
