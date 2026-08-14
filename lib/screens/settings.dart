@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:origilink/l10n/app_localizations.dart';
 import 'package:origilink/languages.dart';
 import 'package:origilink/screens/logout.dart';
 import 'package:origilink/screens/edit_profile.dart';
+import 'package:origilink/screens/global_profile_setup.dart';
 import 'package:origilink/screens/login.dart';
 import 'package:origilink/screens/relay_settings.dart';
 import 'package:origilink/screens/attachment_server_settings.dart';
 import 'package:origilink/src/rust/api/account.dart' as account_api;
+import 'package:origilink/src/rust/api/global_chat.dart' as global_chat_api;
 import 'package:origilink/src/rust/api/sync.dart' as sync_api;
 
 /// Settings menu reachable from the top-right gear icon on Home. Links to
@@ -41,6 +44,24 @@ class SettingsScreen extends StatelessWidget {
     );
     if (updated == null) return;
     onProfileUpdated(updated);
+  }
+
+  /// Opens Global Profile setup/edit, pre-filled if one already exists —
+  /// the Global Chat identity is otherwise only reachable by switching
+  /// Home's Private/Global toggle, which isn't obvious as "where you edit
+  /// your Global profile" from Settings.
+  Future<void> _openGlobalProfile(BuildContext context) async {
+    final storageDir = await getApplicationDocumentsDirectory();
+    final existing = await global_chat_api.loadGlobalProfile(storageDir: storageDir.path);
+    if (!context.mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => GlobalProfileSetupScreen(
+          existingProfile: existing,
+          onDone: () => Navigator.of(context).pop(),
+        ),
+      ),
+    );
   }
 
   void _openRelaySettings(BuildContext context) {
@@ -113,6 +134,12 @@ class SettingsScreen extends StatelessWidget {
               title: Text(l10n.settingsProfile),
               trailing: const Icon(Icons.chevron_right, color: OrigilinkColors.textSecondary),
               onTap: () => _openEditProfile(context),
+            ),
+            ListTile(
+              leading: const Icon(Icons.public, color: OrigilinkColors.textSecondary),
+              title: Text(l10n.globalProfileSetupTitle),
+              trailing: const Icon(Icons.chevron_right, color: OrigilinkColors.textSecondary),
+              onTap: () => _openGlobalProfile(context),
             ),
             ListTile(
               leading: const Icon(Icons.dns_outlined, color: OrigilinkColors.textSecondary),
