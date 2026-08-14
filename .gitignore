@@ -1,4 +1,5 @@
 # Miscellaneous
+/tmp_files/
 *.class
 *.log
 *.pyc
