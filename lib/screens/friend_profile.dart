@@ -13,21 +13,24 @@ import 'package:origilink/src/rust/api/friends.dart' as friends_api;
 import 'package:origilink/src/rust/api/sync.dart' as sync_api;
 
 /// A friend's profile and the relays they publish to, with actions to
-/// favorite/block/delete them. Shared between the friends list (tapping a
-/// row) and a chat thread (tapping the friend's name/avatar in the app
-/// bar), so both entry points stay in sync on one implementation.
+/// favorite/block them. Shared between the friends list (tapping a row)
+/// and a chat thread (tapping the friend's name/avatar in the app bar), so
+/// both entry points stay in sync on one implementation.
 ///
-/// Blocking is reversible: a blocked friend stays in the friends list
-/// (their messages/profile updates are just silently dropped) and can be
-/// unblocked from here. Deleting is only offered while already blocked —
-/// blocking first ensures nothing incoming gets applied for the friend
-/// mid-deletion, and gives the user a way back (unblock) before they
-/// commit to the irreversible delete.
+/// Blocking is the only way to remove a friend from the main friends list,
+/// and is always reversible: a blocked friend's messages/profile updates
+/// are silently dropped and they disappear from [AccountFriendsTab]'s
+/// list, but the friend record itself isn't deleted — they can be found
+/// and unblocked again from Settings > Blocked accounts
+/// (`blocked_accounts.dart`) at any time. There used to be a separate,
+/// irreversible "delete" action; it was removed in favor of this single
+/// reversible one, since deleting a *blocked* friend (the only state
+/// delete was offered from) left no way to undo the block itself.
 ///
-/// Pops with `true` only when the friend was deleted (irreversible) —
-/// callers still showing that friend (e.g. an open chat thread) should pop
-/// themselves too, since the friend no longer exists. Blocking/unblocking
-/// update this screen in place instead, since the friend isn't gone.
+/// Pops with `true` when the friend was blocked — callers still showing
+/// that friend (e.g. an open chat thread) should pop themselves too, since
+/// the friend is no longer visible from the main list. Unblocking updates
+/// this screen in place instead, since nothing needs to close.
 class FriendProfileScreen extends StatefulWidget {
   const FriendProfileScreen({
     super.key,
@@ -35,7 +38,6 @@ class FriendProfileScreen extends StatefulWidget {
     required this.onToggleFavorite,
     required this.onBlockFriend,
     required this.onUnblockFriend,
-    required this.onDeleteFriend,
     required this.onClearChat,
     this.messageEvents,
   });
@@ -44,7 +46,6 @@ class FriendProfileScreen extends StatefulWidget {
   final Future<void> Function(friends_api.Friend friend) onToggleFavorite;
   final Future<void> Function(friends_api.Friend friend) onBlockFriend;
   final Future<void> Function(friends_api.Friend friend) onUnblockFriend;
-  final Future<void> Function(friends_api.Friend friend) onDeleteFriend;
   final Future<void> Function(friends_api.Friend friend) onClearChat;
 
   /// Live friend-protocol events, passed through to the chat thread opened
@@ -137,7 +138,6 @@ class _FriendProfileScreenState extends State<FriendProfileScreen> {
           onToggleFavorite: widget.onToggleFavorite,
           onBlockFriend: widget.onBlockFriend,
           onUnblockFriend: widget.onUnblockFriend,
-          onDeleteFriend: widget.onDeleteFriend,
           onClearChat: widget.onClearChat,
         ),
       ),
@@ -155,6 +155,10 @@ class _FriendProfileScreenState extends State<FriendProfileScreen> {
     if (confirmed != true) return;
     setState(() => _isBlocked = true);
     await widget.onBlockFriend(friend);
+    // Blocked friends no longer show in the main friends list (see the
+    // class doc comment), so this profile is now a dead end — pop back
+    // the same way deleting used to.
+    if (context.mounted) Navigator.of(context).pop(true);
   }
 
   Future<void> _copyUid(BuildContext context) async {
@@ -167,19 +171,6 @@ class _FriendProfileScreenState extends State<FriendProfileScreen> {
   Future<void> _handleUnblock() async {
     setState(() => _isBlocked = false);
     await widget.onUnblockFriend(friend);
-  }
-
-  Future<void> _handleDelete(BuildContext context) async {
-    final l10n = AppLocalizations.of(context)!;
-    final confirmed = await _confirm(
-      context,
-      title: l10n.deleteFriendConfirmTitle(friend.displayName),
-      body: l10n.deleteFriendConfirmBody,
-      confirmLabel: l10n.deleteFriend,
-    );
-    if (confirmed != true) return;
-    await widget.onDeleteFriend(friend);
-    if (context.mounted) Navigator.of(context).pop(true);
   }
 
   @override
@@ -317,12 +308,6 @@ class _FriendProfileScreenState extends State<FriendProfileScreen> {
                           style: const TextStyle(color: OrigilinkColors.primaryDark),
                         ),
                         onTap: _handleUnblock,
-                      ),
-                      const Divider(height: 1, color: Color(0x14000000)),
-                      ListTile(
-                        leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                        title: Text(l10n.deleteFriend, style: const TextStyle(color: Colors.redAccent)),
-                        onTap: () => _handleDelete(context),
                       ),
                     ]
                   : [

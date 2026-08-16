@@ -21,13 +21,17 @@ class AccountFriendsTab extends StatelessWidget {
     required this.onToggleFavorite,
     required this.onBlockFriend,
     required this.onUnblockFriend,
-    required this.onDeleteFriend,
     required this.onClearChat,
     required this.onFriendProfileClosed,
     this.messageEvents,
   });
 
   final account_api.Account profile;
+
+  /// May include blocked friends — filtered out below (see
+  /// `friend_profile.dart`'s class doc comment on why blocking hides a
+  /// friend from this list; Settings > Blocked accounts is where they're
+  /// managed instead).
   final List<friends_api.Friend> friends;
   final VoidCallback onEditProfile;
   final VoidCallback onAddFriend;
@@ -40,7 +44,6 @@ class AccountFriendsTab extends StatelessWidget {
   final Future<void> Function(friends_api.Friend friend) onToggleFavorite;
   final Future<void> Function(friends_api.Friend friend) onBlockFriend;
   final Future<void> Function(friends_api.Friend friend) onUnblockFriend;
-  final Future<void> Function(friends_api.Friend friend) onDeleteFriend;
   final Future<void> Function(friends_api.Friend friend) onClearChat;
 
   /// Called after returning from a friend's profile screen — e.g. tapping
@@ -54,6 +57,7 @@ class AccountFriendsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final visibleFriends = friends.where((f) => !f.isBlocked).toList();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       child: Column(
@@ -61,7 +65,7 @@ class AccountFriendsTab extends StatelessWidget {
         children: [
           _ProfileCard(profile: profile, onEdit: onEditProfile),
           const SizedBox(height: 24),
-          if (friends.isEmpty) ...[
+          if (visibleFriends.isEmpty) ...[
             _AddFriendButton(label: l10n.addFriendByQr, onTap: onAddFriend),
             const SizedBox(height: 24),
           ],
@@ -76,7 +80,7 @@ class AccountFriendsTab extends StatelessWidget {
                   color: OrigilinkColors.textSecondary,
                 ),
               ),
-              if (friends.isNotEmpty)
+              if (visibleFriends.isNotEmpty)
                 IconButton(
                   onPressed: onAddFriend,
                   icon: const Icon(
@@ -91,14 +95,13 @@ class AccountFriendsTab extends StatelessWidget {
           Expanded(
             child: RefreshIndicator(
               onRefresh: onRefreshFriends,
-              child: friends.isEmpty
+              child: visibleFriends.isEmpty
                   ? const _EmptyFriendsList()
                   : _FriendsList(
-                      friends: friends,
+                      friends: visibleFriends,
                       onToggleFavorite: onToggleFavorite,
                       onBlockFriend: onBlockFriend,
                       onUnblockFriend: onUnblockFriend,
-                      onDeleteFriend: onDeleteFriend,
                       onClearChat: onClearChat,
                       onFriendProfileClosed: onFriendProfileClosed,
                       messageEvents: messageEvents,
@@ -117,7 +120,6 @@ class _FriendsList extends StatelessWidget {
     required this.onToggleFavorite,
     required this.onBlockFriend,
     required this.onUnblockFriend,
-    required this.onDeleteFriend,
     required this.onClearChat,
     required this.onFriendProfileClosed,
     this.messageEvents,
@@ -127,7 +129,6 @@ class _FriendsList extends StatelessWidget {
   final Future<void> Function(friends_api.Friend friend) onToggleFavorite;
   final Future<void> Function(friends_api.Friend friend) onBlockFriend;
   final Future<void> Function(friends_api.Friend friend) onUnblockFriend;
-  final Future<void> Function(friends_api.Friend friend) onDeleteFriend;
   final Future<void> Function(friends_api.Friend friend) onClearChat;
   final VoidCallback onFriendProfileClosed;
   final Stream<sync_api.FriendEvent>? messageEvents;
@@ -140,7 +141,6 @@ class _FriendsList extends StatelessWidget {
           onToggleFavorite: onToggleFavorite,
           onBlockFriend: onBlockFriend,
           onUnblockFriend: onUnblockFriend,
-          onDeleteFriend: onDeleteFriend,
           onClearChat: onClearChat,
           messageEvents: messageEvents,
         ),

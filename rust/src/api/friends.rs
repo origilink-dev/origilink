@@ -234,6 +234,11 @@ pub(crate) fn update_friend_profile(
 /// Also deletes their cached avatar file (`friend_avatars/<pubkey>_*`, see
 /// `sync.rs`'s `save_friend_avatar_link`) — otherwise it would sit on disk
 /// forever, never referenced again once the friend entry is gone.
+///
+/// Deliberately does *not* touch `blocked.json` — a blocked friend stays
+/// blocked after deletion, otherwise deleting one would be an accidental
+/// way to let them back in. See [list_blocked] for the only remaining way
+/// to undo that block once the friend entry itself is gone.
 pub fn remove_friend(storage_dir: String, pubkey: String) -> Result<(), String> {
     let mut friends = load_friends(storage_dir.clone());
     friends.retain(|f| f.pubkey != pubkey);
@@ -282,6 +287,31 @@ fn load_blocked_entries(storage_dir: &str) -> Vec<BlockedEntry> {
 fn save_blocked_entries(storage_dir: &str, entries: &[BlockedEntry]) -> Result<(), String> {
     let content = serde_json::to_string_pretty(entries).map_err(|e| e.to_string())?;
     fs::write(blocked_path(storage_dir), content).map_err(|e| e.to_string())
+}
+
+/// One row for a "Blocked accounts" management screen — [BlockedEntry] is
+/// `pub(crate)` (an internal storage detail), so this is the public,
+/// FRB-facing shape exposing the same two fields. Needed because a block
+/// persists in `blocked.json` independently of `friends.json` (see
+/// [load_friends]'s doc comment and [remove_friend]): deleting a blocked
+/// friend removes their `friends.json` entry (and with it, the only other
+/// UI surface that could unblock them) but deliberately leaves the block
+/// itself in place, so there must be a way to see and undo it that doesn't
+/// depend on the friend still existing.
+pub struct BlockedAccount {
+    pub pubkey: String,
+    /// Empty for a block predating this field (see [BlockedEntry::uid]'s
+    /// `#[serde(default)]`) — the UI should treat that as "unknown", not
+    /// display a blank.
+    pub uid: String,
+}
+
+/// Public FRB-facing wrapper around [load_blocked_entries].
+pub fn list_blocked(storage_dir: String) -> Vec<BlockedAccount> {
+    load_blocked_entries(&storage_dir)
+        .into_iter()
+        .map(|e| BlockedAccount { pubkey: e.pubkey, uid: e.uid })
+        .collect()
 }
 
 /// Loads the set of contact pubkeys whose friend requests should be

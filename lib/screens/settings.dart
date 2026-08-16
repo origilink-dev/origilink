@@ -8,6 +8,7 @@ import 'package:origilink/screens/global_profile_setup.dart';
 import 'package:origilink/screens/login.dart';
 import 'package:origilink/screens/relay_settings.dart';
 import 'package:origilink/screens/attachment_server_settings.dart';
+import 'package:origilink/screens/blocked_accounts.dart';
 import 'package:origilink/src/rust/api/account.dart' as account_api;
 import 'package:origilink/src/rust/api/global_chat.dart' as global_chat_api;
 import 'package:origilink/src/rust/api/sync.dart' as sync_api;
@@ -75,6 +76,12 @@ class SettingsScreen extends StatelessWidget {
   void _openAttachmentServerSettings(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const AttachmentServerSettingsScreen()),
+    );
+  }
+
+  void _openBlockedAccounts(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const BlockedAccountsScreen()),
     );
   }
 
@@ -164,6 +171,12 @@ class SettingsScreen extends StatelessWidget {
               title: Text(l10n.settingsAccount),
               trailing: const Icon(Icons.chevron_right, color: OrigilinkColors.textSecondary),
               onTap: () => _openAccountSettings(context),
+            ),
+            ListTile(
+              leading: const Icon(Icons.block_outlined, color: OrigilinkColors.textSecondary),
+              title: Text(l10n.settingsBlockedAccounts),
+              trailing: const Icon(Icons.chevron_right, color: OrigilinkColors.textSecondary),
+              onTap: () => _openBlockedAccounts(context),
             ),
             ListTile(
               leading: const Icon(Icons.description_outlined, color: OrigilinkColors.textSecondary),
