@@ -80,39 +80,48 @@ class AccountSettingsScreen extends StatelessWidget {
     if (mnemonic != null) {
       final storageDir = await getApplicationDocumentsDirectory();
       final relayList = await relay_api.loadRelayList(storageDir: storageDir.path);
-      try {
-        await sync_api.deleteAccountBackup(mnemonic: mnemonic, relayUrls: relayList.urls);
-      } catch (_) {
-        // Relays unreachable — the local wipe still proceeds; the backup
-        // event may linger on relays that were offline for this request.
-      }
-
-      // Best-effort: also remove this device's uploaded avatar blobs from
-      // the Blossom server(s) — nothing will ever reference them again
-      // once the local account/profile is wiped.
-      final account = await account_api.loadAccount(storageDir: storageDir.path);
-      final avatarLink = account?.avatarLink;
-      if (avatarLink != null) {
-        try {
-          await account_api.deleteAccountAvatarBlob(mnemonic: mnemonic, avatarLink: avatarLink);
-        } catch (_) {
-          // Offline or server doesn't support delete — nothing more to do.
-        }
-      }
-      final globalProfile = await global_chat_api.loadGlobalProfile(storageDir: storageDir.path);
-      final pictureUrl = globalProfile?.pictureUrl;
-      if (pictureUrl != null) {
-        try {
-          await global_chat_api.deleteGlobalProfilePicture(
-            mnemonic: mnemonic,
-            pictureUrl: pictureUrl,
-          );
-        } catch (_) {
-          // Offline or server doesn't support delete — nothing more to do.
-        }
-      }
+      // The relay backup deletion and the two Blossom blob deletions below
+      // are all independent network round trips — running them
+      // concurrently instead of one after another is what took "Delete
+      // account" from several seconds down to roughly however long the
+      // single slowest one takes.
+      await Future.wait([
+        sync_api.deleteAccountBackup(mnemonic: mnemonic, relayUrls: relayList.urls).catchError((_) {
+          // Relays unreachable — the local wipe still proceeds; the backup
+          // event may linger on relays that were offline for this request.
+        }),
+        _deleteAccountAvatarBlob(storageDir.path, mnemonic),
+        _deleteGlobalProfilePicture(storageDir.path, mnemonic),
+      ]);
     }
     onLogout();
+  }
+
+  /// Best-effort: removes this device's uploaded avatar blob from the
+  /// Blossom server(s) — nothing will ever reference it again once the
+  /// local account/profile is wiped.
+  Future<void> _deleteAccountAvatarBlob(String storageDir, String mnemonic) async {
+    final account = await account_api.loadAccount(storageDir: storageDir);
+    final avatarLink = account?.avatarLink;
+    if (avatarLink == null) return;
+    try {
+      await account_api.deleteAccountAvatarBlob(mnemonic: mnemonic, avatarLink: avatarLink);
+    } catch (_) {
+      // Offline or server doesn't support delete — nothing more to do.
+    }
+  }
+
+  /// Same idea as [_deleteAccountAvatarBlob] but for the Global Chat
+  /// identity's profile picture.
+  Future<void> _deleteGlobalProfilePicture(String storageDir, String mnemonic) async {
+    final globalProfile = await global_chat_api.loadGlobalProfile(storageDir: storageDir);
+    final pictureUrl = globalProfile?.pictureUrl;
+    if (pictureUrl == null) return;
+    try {
+      await global_chat_api.deleteGlobalProfilePicture(mnemonic: mnemonic, pictureUrl: pictureUrl);
+    } catch (_) {
+      // Offline or server doesn't support delete — nothing more to do.
+    }
   }
 
   Future<String?> _loadUid() async {

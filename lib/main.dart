@@ -72,6 +72,15 @@ class _OrigilinkAppState extends State<OrigilinkApp> {
 
   Future<void> _logout(BuildContext context) async {
     final storageDir = await getApplicationDocumentsDirectory();
+    // Every top-level file any `rust/src/api/*.rs` module writes under the
+    // storage dir — kept in sync with those `.join("...")` call sites by
+    // hand, since there's no single registry of them. Previously missed
+    // the Global Chat identity (`global_profile.json`,
+    // `global_profile_configured`, `joined_channels.json`) and group/
+    // ratchet/attachment-cache state entirely, so deleting an account
+    // could still show that identity/its joined channels afterward —
+    // everything account-scoped needs to go, not just the private-chat
+    // half.
     const jsonFiles = {
       'account.json',
       'relays.json',
@@ -88,6 +97,30 @@ class _OrigilinkAppState extends State<OrigilinkApp> {
       // "not newer" against the previous account's stale watermarks.
       'account_sync_state.json',
       'config.json',
+      'chat_history_complete.json',
+      'friend_devices.json',
+      'global_profile.json',
+      'global_profile_configured',
+      'joined_channels.json',
+      'group_identity_accounts.json',
+      'group_messages.enc',
+      'group_processed_ids.json',
+      'group_ratchet_sessions.enc',
+      'groups.json',
+      'held_messages.json',
+      'link_preview_cache.json',
+      'ratchet_account.enc',
+      'ratchet_messages.enc',
+      'ratchet_processed_ids.json',
+      'ratchet_sessions.enc',
+      'upload_server.json',
+      'upload_servers.json',
+    };
+    const directories = {
+      'chat.lmdb',
+      'attachments',
+      'friend_avatars',
+      'group_attachments',
     };
     for (final entity in storageDir.listSync()) {
       final name = entity.uri.pathSegments.where((s) => s.isNotEmpty).last;
@@ -95,9 +128,10 @@ class _OrigilinkAppState extends State<OrigilinkApp> {
           (jsonFiles.contains(name) ||
               name.startsWith('avatar.') ||
               name == 'avatar_synced' ||
-              name.startsWith('account_avatar_'))) {
+              name.startsWith('account_avatar_') ||
+              name.startsWith('global_avatar_'))) {
         await entity.delete();
-      } else if (entity is Directory && name == 'chat.lmdb') {
+      } else if (entity is Directory && directories.contains(name)) {
         await entity.delete(recursive: true);
       }
     }
