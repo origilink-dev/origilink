@@ -4,7 +4,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:origilink/l10n/app_localizations.dart';
 import 'package:origilink/screens/login.dart';
 import 'package:origilink/screens/logout.dart' show seedStorageKey;
-import 'package:origilink/screens/global_chat_thread.dart';
 import 'package:origilink/screens/global_profile_setup.dart';
 import 'package:origilink/src/rust/api/global_chat.dart' as global_chat_api;
 import 'package:origilink/src/rust/api/relay.dart' as relay_api;
@@ -142,6 +141,59 @@ Future<bool> showGlobalChannelAddMenu(BuildContext context) async {
 /// `ChatListTabState.reloadChannels`). Opening a channel from here joins it
 /// (mirrors `chat_list.dart`'s "opening a friend's thread marks it
 /// started" convention), so there's no separate join button.
+/// Same pill-shaped segmented look as [PrivateGlobalToggle] (Home/Talk's
+/// Private/Global switch) — reused here as a mini filter rather than a
+/// bare [Switch], so "which channels am I looking at" reads the same way
+/// across the app instead of two different toggle idioms for a similar
+/// concept.
+class _ChannelFilterToggle extends StatelessWidget {
+  const _ChannelFilterToggle({required this.origilinkOnly, required this.onChanged});
+
+  final bool origilinkOnly;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: OrigilinkColors.surface,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _segment(l10n.channelFilterOrigilink, selected: origilinkOnly, onTap: () => onChanged(true)),
+          _segment(l10n.channelFilterAll, selected: !origilinkOnly, onTap: () => onChanged(false)),
+        ],
+      ),
+    );
+  }
+
+  Widget _segment(String label, {required bool selected, required VoidCallback onTap}) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? OrigilinkColors.textPrimary : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: selected ? Colors.white : OrigilinkColors.textSecondary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class GlobalChannelSearchScreen extends StatefulWidget {
   const GlobalChannelSearchScreen({super.key});
 
@@ -174,13 +226,8 @@ class _GlobalChannelSearchScreenState extends State<GlobalChannelSearchScreen> {
   }
 
   Future<void> _openChannel(global_chat_api.GlobalChannel channel) async {
-    if (!await ensureGlobalProfile(context)) return;
-    if (!mounted) return;
-    final storageDir = await getApplicationDocumentsDirectory();
-    await global_chat_api.joinChannel(storageDir: storageDir.path, channel: channel);
-    if (!mounted) return;
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => GlobalChatThreadScreen(channel: channel)),
+      MaterialPageRoute(builder: (_) => GlobalChannelPreviewScreen(channel: channel)),
     );
   }
 
@@ -195,20 +242,9 @@ class _GlobalChannelSearchScreenState extends State<GlobalChannelSearchScreen> {
         foregroundColor: OrigilinkColors.textPrimary,
         title: Text(l10n.searchChannelsTitle),
         actions: [
-          Tooltip(
-            message: _origilinkOnly ? l10n.showAllChannelsTooltip : l10n.showOrigilinkChannelsTooltip,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(20),
-              onTap: () => setState(() => _origilinkOnly = !_origilinkOnly),
-              child: Transform.scale(
-                scale: 0.75,
-                child: Switch.adaptive(
-                  value: _origilinkOnly,
-                  activeThumbColor: OrigilinkColors.primaryDark,
-                  onChanged: (value) => setState(() => _origilinkOnly = value),
-                ),
-              ),
-            ),
+          _ChannelFilterToggle(
+            origilinkOnly: _origilinkOnly,
+            onChanged: (value) => setState(() => _origilinkOnly = value),
           ),
           const SizedBox(width: 8),
         ],
@@ -308,6 +344,108 @@ class _GlobalChannelSearchScreenState extends State<GlobalChannelSearchScreen> {
                 },
               ),
             ),
+    );
+  }
+}
+
+/// Shown before actually joining a channel found via search — mirrors
+/// `friend_profile.dart`'s "view profile, then explicitly press Talk to
+/// start chatting" flow, so browsing search results doesn't silently join
+/// (and start receiving) every channel tapped along the way.
+class GlobalChannelPreviewScreen extends StatefulWidget {
+  const GlobalChannelPreviewScreen({super.key, required this.channel});
+
+  final global_chat_api.GlobalChannel channel;
+
+  @override
+  State<GlobalChannelPreviewScreen> createState() => _GlobalChannelPreviewScreenState();
+}
+
+class _GlobalChannelPreviewScreenState extends State<GlobalChannelPreviewScreen> {
+  bool _joining = false;
+
+  /// Joins and returns to wherever this preview was opened from (search
+  /// results, Home's Global list, ...) — mirrors `add_friend.dart`'s
+  /// send-request flow, which confirms and stays put rather than jumping
+  /// straight into the new thread. The channel now shows up in Talk /
+  /// Home's Global list like any other joined channel; opening its thread
+  /// is a separate, explicit tap from there.
+  Future<void> _handleJoin(BuildContext context) async {
+    if (!await ensureGlobalProfile(context)) return;
+    if (!mounted) return;
+    setState(() => _joining = true);
+    final storageDir = await getApplicationDocumentsDirectory();
+    await global_chat_api.joinChannel(storageDir: storageDir.path, channel: widget.channel);
+    if (!context.mounted) return;
+    final l10n = AppLocalizations.of(context)!;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l10n.channelAddedMessage)));
+    // All the way back to Home (this preview is normally reached via
+    // Home's "+" menu → search results → here), not just one level up to
+    // the search results screen.
+    Navigator.of(context).popUntil((route) => route.isFirst);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final channel = widget.channel;
+    return Scaffold(
+      backgroundColor: OrigilinkColors.background,
+      appBar: AppBar(
+        backgroundColor: OrigilinkColors.background,
+        elevation: 0,
+        foregroundColor: OrigilinkColors.textPrimary,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        children: [
+          const SizedBox(height: 12),
+          Center(
+            child: CircleAvatar(
+              radius: 44,
+              backgroundColor: OrigilinkColors.surface,
+              child: const Icon(Icons.tag, color: OrigilinkColors.textSecondary, size: 36),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Center(
+            child: Text(
+              channel.name.isEmpty ? l10n.untitledChannel : channel.name,
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: OrigilinkColors.textPrimary,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          if (channel.about.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              channel.about,
+              style: const TextStyle(color: OrigilinkColors.textSecondary),
+              textAlign: TextAlign.center,
+            ),
+          ],
+          const SizedBox(height: 28),
+          ElevatedButton.icon(
+            onPressed: _joining ? null : () => _handleJoin(context),
+            icon: _joining
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.add),
+            label: Text(l10n.joinChannelButton),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: OrigilinkColors.primaryDark,
+              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(48),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
