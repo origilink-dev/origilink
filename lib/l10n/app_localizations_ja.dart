@@ -80,10 +80,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get addFriendTitle => '友達を追加';
 
   @override
-  String get myQrTab => 'マイQR';
+  String get myQrTab => 'コード・QR';
 
   @override
-  String get scanTab => 'スキャン';
+  String get scanTab => 'コード・QRで追加';
 
   @override
   String get maxUsesLabel => '使用回数上限';
@@ -98,7 +98,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get validForLabel => '有効期間(日数)';
 
   @override
-  String get generateQrButton => 'QRコードを生成';
+  String get generateQrButton => '生成';
 
   @override
   String get regenerateQrButton => '新しいコードを生成';
@@ -161,6 +161,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get scanInvalidQr => 'OrigiLinkの招待コードとして読み取れませんでした';
 
   @override
+  String get cannotAddSelfMessage => '自分自身をフレンドに追加することはできません';
+
+  @override
   String get sendRequestConfirmTitle => 'フレンド申請を送りますか?';
 
   @override
@@ -173,6 +176,9 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get requestSentMessage => 'フレンド申請を送信しました';
+
+  @override
+  String get channelAddedMessage => 'チャンネルを追加しました';
 
   @override
   String get friendRequestsTitle => 'フレンド申請';
@@ -210,6 +216,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get startChat => 'トーク';
 
   @override
+  String get joinChannelButton => '追加';
+
+  @override
   String get addToFavorites => 'お気に入りに追加';
 
   @override
@@ -225,22 +234,10 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get blockFriendConfirmBody =>
-      'このユーザーからのメッセージ・プロフィール更新を今後受け取らなくなります。友達リストにはそのまま残るので、後でブロックを解除できます。';
+      '友達リストから削除され、相手は新たにフレンド申請を送ることができなくなります。設定 > ブロックしたアカウントから後で元に戻せます。';
 
   @override
   String get unblockFriend => 'ブロック解除';
-
-  @override
-  String get deleteFriend => '友達を削除';
-
-  @override
-  String deleteFriendConfirmTitle(String name) {
-    return '$nameさんを削除しますか?';
-  }
-
-  @override
-  String get deleteFriendConfirmBody =>
-      '友達リストから完全に削除されます。相手は後で改めてフレンド申請を送ることができます。';
 
   @override
   String get noChatsYet => 'まだ会話がありません';
@@ -363,6 +360,12 @@ class AppLocalizationsJa extends AppLocalizations {
   String get showOrigilinkChannelsTooltip => 'OrigiLinkのチャンネルのみ表示';
 
   @override
+  String get channelFilterOrigilink => 'OrigiLink';
+
+  @override
+  String get channelFilterAll => 'すべて';
+
+  @override
   String get origilinkChannelsTitle => 'OrigiLinkチャンネル';
 
   @override
@@ -400,6 +403,18 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get settingsLicenses => 'オープンソースライセンス';
+
+  @override
+  String get settingsBlockedAccounts => 'ブロックしたアカウント';
+
+  @override
+  String get blockedAccountsEmpty => 'ブロックしたアカウントはありません';
+
+  @override
+  String get unblockConfirmTitle => 'ブロックを解除しますか?';
+
+  @override
+  String get unblockConfirmBody => 'フレンド一覧に戻り、再びチャットできるようになります。';
 
   @override
   String get attachmentServerDialogTitle => 'ファイル送信サーバー';

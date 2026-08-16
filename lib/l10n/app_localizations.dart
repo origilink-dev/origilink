@@ -233,13 +233,13 @@ abstract class AppLocalizations {
   /// No description provided for @myQrTab.
   ///
   /// In en, this message translates to:
-  /// **'My QR'**
+  /// **'My Code & QR'**
   String get myQrTab;
 
   /// No description provided for @scanTab.
   ///
   /// In en, this message translates to:
-  /// **'Scan'**
+  /// **'Add by Code/QR'**
   String get scanTab;
 
   /// No description provided for @maxUsesLabel.
@@ -269,7 +269,7 @@ abstract class AppLocalizations {
   /// No description provided for @generateQrButton.
   ///
   /// In en, this message translates to:
-  /// **'Generate QR code'**
+  /// **'Generate'**
   String get generateQrButton;
 
   /// No description provided for @regenerateQrButton.
@@ -380,6 +380,12 @@ abstract class AppLocalizations {
   /// **'This isn\'t a valid OrigiLink invite code'**
   String get scanInvalidQr;
 
+  /// No description provided for @cannotAddSelfMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'You can\'t add yourself as a friend'**
+  String get cannotAddSelfMessage;
+
   /// No description provided for @sendRequestConfirmTitle.
   ///
   /// In en, this message translates to:
@@ -403,6 +409,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Friend request sent'**
   String get requestSentMessage;
+
+  /// No description provided for @channelAddedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Channel added'**
+  String get channelAddedMessage;
 
   /// No description provided for @friendRequestsTitle.
   ///
@@ -470,6 +482,12 @@ abstract class AppLocalizations {
   /// **'Talk'**
   String get startChat;
 
+  /// No description provided for @joinChannelButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Add'**
+  String get joinChannelButton;
+
   /// No description provided for @addToFavorites.
   ///
   /// In en, this message translates to:
@@ -497,7 +515,7 @@ abstract class AppLocalizations {
   /// No description provided for @blockFriendConfirmBody.
   ///
   /// In en, this message translates to:
-  /// **'You\'ll stop receiving their messages and profile updates. They stay in your friends list so you can unblock them later.'**
+  /// **'They\'ll be removed from your friends list and won\'t be able to send you a new friend request. You can undo this from Settings > Blocked accounts.'**
   String get blockFriendConfirmBody;
 
   /// No description provided for @unblockFriend.
@@ -505,24 +523,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Unblock'**
   String get unblockFriend;
-
-  /// No description provided for @deleteFriend.
-  ///
-  /// In en, this message translates to:
-  /// **'Delete friend'**
-  String get deleteFriend;
-
-  /// No description provided for @deleteFriendConfirmTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Delete {name}?'**
-  String deleteFriendConfirmTitle(String name);
-
-  /// No description provided for @deleteFriendConfirmBody.
-  ///
-  /// In en, this message translates to:
-  /// **'This permanently removes them from your friends list. They can send you a new friend request later.'**
-  String get deleteFriendConfirmBody;
 
   /// No description provided for @noChatsYet.
   ///
@@ -752,6 +752,18 @@ abstract class AppLocalizations {
   /// **'Show OrigiLink channels only'**
   String get showOrigilinkChannelsTooltip;
 
+  /// No description provided for @channelFilterOrigilink.
+  ///
+  /// In en, this message translates to:
+  /// **'OrigiLink'**
+  String get channelFilterOrigilink;
+
+  /// No description provided for @channelFilterAll.
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get channelFilterAll;
+
   /// No description provided for @origilinkChannelsTitle.
   ///
   /// In en, this message translates to:
@@ -829,6 +841,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Open source licenses'**
   String get settingsLicenses;
+
+  /// No description provided for @settingsBlockedAccounts.
+  ///
+  /// In en, this message translates to:
+  /// **'Blocked accounts'**
+  String get settingsBlockedAccounts;
+
+  /// No description provided for @blockedAccountsEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No blocked accounts'**
+  String get blockedAccountsEmpty;
+
+  /// No description provided for @unblockConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Unblock this account?'**
+  String get unblockConfirmTitle;
+
+  /// No description provided for @unblockConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'They\'ll return to your friends list and you\'ll be able to chat with them again.'**
+  String get unblockConfirmBody;
 
   /// No description provided for @attachmentServerDialogTitle.
   ///

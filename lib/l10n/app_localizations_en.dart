@@ -83,10 +83,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get addFriendTitle => 'Add friend';
 
   @override
-  String get myQrTab => 'My QR';
+  String get myQrTab => 'My Code & QR';
 
   @override
-  String get scanTab => 'Scan';
+  String get scanTab => 'Add by Code/QR';
 
   @override
   String get maxUsesLabel => 'Max uses';
@@ -101,7 +101,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get validForLabel => 'Valid for (days)';
 
   @override
-  String get generateQrButton => 'Generate QR code';
+  String get generateQrButton => 'Generate';
 
   @override
   String get regenerateQrButton => 'Generate new code';
@@ -164,6 +164,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get scanInvalidQr => 'This isn\'t a valid OrigiLink invite code';
 
   @override
+  String get cannotAddSelfMessage => 'You can\'t add yourself as a friend';
+
+  @override
   String get sendRequestConfirmTitle => 'Send friend request?';
 
   @override
@@ -176,6 +179,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get requestSentMessage => 'Friend request sent';
+
+  @override
+  String get channelAddedMessage => 'Channel added';
 
   @override
   String get friendRequestsTitle => 'Friend requests';
@@ -213,6 +219,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get startChat => 'Talk';
 
   @override
+  String get joinChannelButton => 'Add';
+
+  @override
   String get addToFavorites => 'Add to Favorites';
 
   @override
@@ -228,22 +237,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get blockFriendConfirmBody =>
-      'You\'ll stop receiving their messages and profile updates. They stay in your friends list so you can unblock them later.';
+      'They\'ll be removed from your friends list and won\'t be able to send you a new friend request. You can undo this from Settings > Blocked accounts.';
 
   @override
   String get unblockFriend => 'Unblock';
-
-  @override
-  String get deleteFriend => 'Delete friend';
-
-  @override
-  String deleteFriendConfirmTitle(String name) {
-    return 'Delete $name?';
-  }
-
-  @override
-  String get deleteFriendConfirmBody =>
-      'This permanently removes them from your friends list. They can send you a new friend request later.';
 
   @override
   String get noChatsYet => 'No conversations yet';
@@ -367,6 +364,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get showOrigilinkChannelsTooltip => 'Show OrigiLink channels only';
 
   @override
+  String get channelFilterOrigilink => 'OrigiLink';
+
+  @override
+  String get channelFilterAll => 'All';
+
+  @override
   String get origilinkChannelsTitle => 'OrigiLink channels';
 
   @override
@@ -405,6 +408,19 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsLicenses => 'Open source licenses';
+
+  @override
+  String get settingsBlockedAccounts => 'Blocked accounts';
+
+  @override
+  String get blockedAccountsEmpty => 'No blocked accounts';
+
+  @override
+  String get unblockConfirmTitle => 'Unblock this account?';
+
+  @override
+  String get unblockConfirmBody =>
+      'They\'ll return to your friends list and you\'ll be able to chat with them again.';
 
   @override
   String get attachmentServerDialogTitle => 'File upload server';
