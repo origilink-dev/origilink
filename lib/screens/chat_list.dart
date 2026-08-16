@@ -18,6 +18,7 @@ import 'package:origilink/src/rust/api/groups.dart' as groups_api;
 import 'package:origilink/src/rust/api/ratchet.dart' as ratchet_api;
 import 'package:origilink/src/rust/api/relay.dart' as relay_api;
 import 'package:origilink/src/rust/api/sync.dart' as sync_api;
+import 'package:origilink/widgets/link_preview_card.dart';
 import 'package:origilink/widgets/relative_date.dart';
 
 /// Talk tab body shown inside the home screen's bottom navigation: one row
@@ -25,27 +26,34 @@ import 'package:origilink/widgets/relative_date.dart';
 /// list sorted by most recent activity (see [_TalkEntry]) rather than split
 /// behind the Private/Global toggle, since the toggle only needs to gate
 /// *posting identity* (Home tab), not *which conversations are visible*.
-/// Channels are loaded internally (like a self-contained
-/// `GlobalChatTalkTab` used to be) since, unlike friends/groups, nothing
-/// else on Home needs to share that state.
+/// [channels], like [friends]/[groups], is owned and loaded by
+/// `home.dart` rather than here — `IndexedStack` keeps every tab mounted
+/// simultaneously, so `home.dart`'s own `setState` rebuilds this widget
+/// with fresh data regardless of which tab is currently selected, the same
+/// way an incoming 1:1 message updates this list without the user needing
+/// to be looking at Talk. A channel can now be joined from either Home's
+/// or Talk's "+" menu, so it needs that same instant, tab-independent
+/// visibility instead of only refreshing on next visit to this tab.
 class ChatListTab extends StatefulWidget {
   const ChatListTab({
     super.key,
     required this.friends,
     required this.groups,
+    required this.channels,
     required this.messageEvents,
     required this.onToggleFavorite,
     required this.onBlockFriend,
     required this.onUnblockFriend,
-    required this.onDeleteFriend,
     required this.onClearChat,
     required this.onGroupsChanged,
+    required this.onChannelsChanged,
     required this.unreadCounts,
     required this.onUnreadCountsChanged,
   });
 
   final List<friends_api.Friend> friends;
   final List<groups_api.Group> groups;
+  final List<global_chat_api.GlobalChannel> channels;
 
   /// Live friend-protocol events (shared with [HomeScreen]'s subscription)
   /// — used to refresh previews when a new message arrives for a friend
@@ -55,13 +63,17 @@ class ChatListTab extends StatefulWidget {
   final Future<void> Function(friends_api.Friend friend) onToggleFavorite;
   final Future<void> Function(friends_api.Friend friend) onBlockFriend;
   final Future<void> Function(friends_api.Friend friend) onUnblockFriend;
-  final Future<void> Function(friends_api.Friend friend) onDeleteFriend;
   final Future<void> Function(friends_api.Friend friend) onClearChat;
 
   /// Called after returning from a group thread — reloads `home.dart`'s
   /// group list, so a roster change made inside the thread (e.g. leaving
   /// the group, which deletes it locally) is reflected here immediately.
   final Future<void> Function() onGroupsChanged;
+
+  /// Same idea as [onGroupsChanged] but for [channels] — call after leaving
+  /// a channel so `home.dart`'s copy (and therefore every tab reading it)
+  /// updates immediately.
+  final Future<void> Function() onChannelsChanged;
 
   /// Per-friend unread counts, computed and owned by `home.dart` (not here)
   /// so they stay correct even while this tab isn't mounted — see that
@@ -80,7 +92,6 @@ class ChatListTab extends StatefulWidget {
 class ChatListTabState extends State<ChatListTab> {
   final Map<String, chat_api.ChatMessage?> _previews = {};
   final Map<String, groups_api.GroupChatMessage?> _groupPreviews = {};
-  List<global_chat_api.GlobalChannel> _channels = [];
   final Map<String, global_chat_api.GlobalChannelMessage?> _channelPreviews = {};
   StreamSubscription<sync_api.FriendEvent>? _sub;
 
@@ -89,7 +100,7 @@ class ChatListTabState extends State<ChatListTab> {
     super.initState();
     _loadPreviews();
     _loadGroupPreviews();
-    reloadChannels();
+    _loadChannelPreviews(widget.channels);
     _subscribe();
   }
 
@@ -111,6 +122,9 @@ class ChatListTabState extends State<ChatListTab> {
     }
     if (oldWidget.groups != widget.groups) {
       _loadGroupPreviews();
+    }
+    if (oldWidget.channels != widget.channels) {
+      _loadChannelPreviews(widget.channels);
     }
     if (oldWidget.messageEvents != widget.messageEvents) {
       _sub?.cancel();
@@ -194,14 +208,7 @@ class ChatListTabState extends State<ChatListTab> {
     setState(() => _groupPreviews[groupId] = history.isEmpty ? null : history.last);
   }
 
-  /// Reloads joined Global channels — public so `home.dart` can trigger a
-  /// refresh after joining/creating/leaving one from elsewhere (mirrors the
-  /// old `GlobalChatTalkTabState.reload`).
-  Future<void> reloadChannels() async {
-    final storageDir = await getApplicationDocumentsDirectory();
-    final channels = await global_chat_api.listJoinedChannels(storageDir: storageDir.path);
-    if (!mounted) return;
-    setState(() => _channels = channels);
+  Future<void> _loadChannelPreviews(List<global_chat_api.GlobalChannel> channels) async {
     for (final channel in channels) {
       unawaited(_loadChannelPreviewFor(channel.id));
     }
@@ -214,6 +221,7 @@ class ChatListTabState extends State<ChatListTab> {
       relayUrls: relayList.urls,
       channelId: channelId,
       before: null,
+      limit: 1,
     );
     if (!mounted) return;
     setState(() => _channelPreviews[channelId] = messages.isEmpty ? null : messages.last);
@@ -249,7 +257,7 @@ class ChatListTabState extends State<ChatListTab> {
     if (confirmed != true) return;
     final storageDir = await getApplicationDocumentsDirectory();
     await global_chat_api.leaveChannel(storageDir: storageDir.path, channelId: channel.id);
-    await reloadChannels();
+    await widget.onChannelsChanged();
   }
 
   Future<void> _openGroupThread(groups_api.Group group) async {
@@ -263,6 +271,13 @@ class ChatListTabState extends State<ChatListTab> {
   }
 
   Future<void> _openThread(friends_api.Friend friend) async {
+    // Fire the fetch off the moment the row is tapped, in parallel with the
+    // page-transition animation, rather than waiting for
+    // ChatThreadScreen's own initState to get through loading local +
+    // synced history first — a head start of even a few hundred ms often
+    // means the card is already cached by the time it'd first build.
+    final lastMessage = _previews[friend.pubkey]?.content;
+    if (lastMessage != null) prefetchLinkPreviews([lastMessage]);
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ChatThreadScreen(
@@ -271,7 +286,6 @@ class ChatListTabState extends State<ChatListTab> {
           onToggleFavorite: widget.onToggleFavorite,
           onBlockFriend: widget.onBlockFriend,
           onUnblockFriend: widget.onUnblockFriend,
-          onDeleteFriend: widget.onDeleteFriend,
           onClearChat: widget.onClearChat,
         ),
       ),
@@ -377,7 +391,7 @@ class ChatListTabState extends State<ChatListTab> {
         ),
       );
     }
-    for (final channel in _channels) {
+    for (final channel in widget.channels) {
       final preview = _channelPreviews[channel.id];
       entries.add(
         _TalkEntry(

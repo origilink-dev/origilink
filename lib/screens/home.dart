@@ -67,7 +67,6 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _selectedIndex = 1;
-  final _globalChatKey = GlobalKey<ChatListTabState>();
   final _globalProfileTabKey = GlobalKey<_GlobalProfileTabState>();
   late account_api.Account _profile = widget.profile;
 
@@ -79,6 +78,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   List<friends_api.Friend> _friends = [];
   List<groups_api.Group> _groups = [];
+
+  /// Joined Global channels, lifted up here (rather than owned by
+  /// [ChatListTab] itself) for the same reason [_friends]/[_groups] are:
+  /// `IndexedStack` keeps every tab mounted simultaneously, so a `setState`
+  /// here rebuilds [ChatListTab] with fresh `channels` regardless of which
+  /// tab is currently selected — the same "just works, no tab-switch or
+  /// explicit poke required" behavior 1:1/group updates already get. A
+  /// channel can now be joined from *either* Home's or Talk's "+" menu (see
+  /// `_searchGlobalChannel`/`_createGlobalChannel`), so Talk's list needs
+  /// to reflect that instantly no matter which tab the join happened from
+  /// or which tab is showing afterward.
+  List<global_chat_api.GlobalChannel> _channels = [];
   Set<String> _activeChatPubkeys = {};
   int _pendingRequestCount = 0;
 
@@ -116,6 +127,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _loadFriends();
     _loadGroups();
+    _loadChannels();
     _loadActiveChatPubkeys();
     _refreshPendingRequestCount();
     _subscribeFriendEvents();
@@ -316,6 +328,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     setState(() => _groups = groups);
   }
 
+  Future<void> _loadChannels() async {
+    final storageDir = await getApplicationDocumentsDirectory();
+    final channels = await global_chat_api.listJoinedChannels(storageDir: storageDir.path);
+    if (!mounted) return;
+    setState(() => _channels = channels);
+  }
+
   /// "Create group" from the Talk tab's "+" menu: pick a name and members
   /// (from friends), then open the newly-created group's thread.
   Future<void> _createGroup(BuildContext context) async {
@@ -395,13 +414,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     unawaited(publishAccountBlockedBackup());
   }
 
-  Future<void> _deleteFriend(friends_api.Friend friend) async {
-    final storageDir = await getApplicationDocumentsDirectory();
-    await friends_api.removeFriend(storageDir: storageDir.path, pubkey: friend.pubkey);
-    await _loadFriends();
-    unawaited(publishAccountFriendsBackup());
-  }
-
   /// Wipes local message history with a friend and drops the thread out of
   /// the Talk tab (until either side messages again) — purely local, so it
   /// doesn't affect the friendship or notify them.
@@ -443,7 +455,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onToggleFavorite: _toggleFavorite,
           onBlockFriend: _blockFriend,
           onUnblockFriend: _unblockFriend,
-          onDeleteFriend: _deleteFriend,
           onClearChat: _clearChat,
         ),
       ),
@@ -473,8 +484,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _subscribeFriendEvents();
   }
 
-  void _openSettings() {
-    Navigator.of(context).push(
+  Future<void> _openSettings() async {
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => SettingsScreen(
           profile: _profile,
@@ -485,6 +496,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       ),
     );
+    // Settings > Blocked accounts can unblock someone from in there, which
+    // should bring them back to the friends list / Talk the same way
+    // unblocking from their own profile already does (see
+    // `_unblockFriend`) — reload once control returns here rather than
+    // threading a dedicated callback all the way through
+    // `SettingsScreen` -> `BlockedAccountsScreen`.
+    await _loadFriends();
   }
 
   /// Opens Global Profile setup/edit. When a profile already exists, loads
@@ -543,14 +561,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const GlobalChannelSearchScreen()),
     );
-    _globalChatKey.currentState?.reloadChannels();
+    await _loadChannels();
     _globalProfileTabKey.currentState?.reload();
   }
 
   Future<void> _createGlobalChannel(BuildContext context) async {
     final created = await createGlobalChannel(context);
     if (!created) return;
-    _globalChatKey.currentState?.reloadChannels();
+    await _loadChannels();
     _globalProfileTabKey.currentState?.reload();
   }
 
@@ -574,7 +592,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onToggleFavorite: _toggleFavorite,
           onBlockFriend: _blockFriend,
           onUnblockFriend: _unblockFriend,
-          onDeleteFriend: _deleteFriend,
           onClearChat: _clearChat,
           onFriendProfileClosed: () {
             _loadFriends();
@@ -595,17 +612,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // `_buildEntries`), same trust models as before, just not visually
     // split behind a mode switch the user has to remember to flip.
     final talkTab = ChatListTab(
-      key: _globalChatKey,
-      // Only friends with a started (or already-in-progress) chat show
-      // up here — tapping "Talk" on a friend's profile is what starts
-      // one, rather than every friend appearing by default.
-      friends: _friends.where((f) => _activeChatPubkeys.contains(f.pubkey)).toList(),
+      // Only friends with a started (or already-in-progress) chat show up
+      // here — tapping "Talk" on a friend's profile is what starts one,
+      // rather than every friend appearing by default. Blocked friends are
+      // excluded too (see `friend_profile.dart`'s class doc comment) —
+      // Talk is one of the "friends list"-derived surfaces a block hides
+      // someone from.
+      friends: _friends.where((f) => _activeChatPubkeys.contains(f.pubkey) && !f.isBlocked).toList(),
       groups: _groups,
+      channels: _channels,
       messageEvents: _friendEventsStream,
       onToggleFavorite: _toggleFavorite,
       onBlockFriend: _blockFriend,
       onUnblockFriend: _unblockFriend,
-      onDeleteFriend: _deleteFriend,
       onClearChat: _clearChat,
       onGroupsChanged: () async {
         await _loadGroups();
@@ -615,6 +634,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         // subscription watch list defensively after any roster mutation.
         _subscribeFriendEvents();
       },
+      onChannelsChanged: _loadChannels,
       unreadCounts: _unreadCounts,
       onUnreadCountsChanged: _refreshUnreadCounts,
     );
@@ -755,6 +775,41 @@ class _HomeTopBar extends StatelessWidget {
     }
   }
 
+  /// Home tab's Global-mode counterpart to [_showTalkAddMenu] — only the
+  /// channel search/create choices apply here (no friend/room/group: those
+  /// are Private-mode/Talk-tab concepts), same shape as the Private Home
+  /// tab's plain "add friend" icon just gated to what Global Home actually
+  /// lists (see [_GlobalProfileTab]'s doc comment).
+  Future<void> _showGlobalAddMenu(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: OrigilinkColors.background,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.tag),
+              title: Text(l10n.talkAddSearchGlobalChannel),
+              onTap: () => Navigator.of(sheetContext).pop('search-channel'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.add_comment_outlined),
+              title: Text(l10n.talkAddCreateGlobalChannel),
+              onTap: () => Navigator.of(sheetContext).pop('create-channel'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == 'search-channel' && context.mounted) {
+      await onSearchChannel(context);
+    } else if (choice == 'create-channel' && context.mounted) {
+      await onCreateChannel(context);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -785,7 +840,7 @@ class _HomeTopBar extends StatelessWidget {
                   badgeCount: pendingRequestCount,
                 )
               else
-                const SizedBox(width: 32),
+                _topBarIcon(Icons.add, () => _showGlobalAddMenu(context)),
               const SizedBox(width: 12),
               _topBarIcon(Icons.settings_outlined, onSettingsTap),
             ],
