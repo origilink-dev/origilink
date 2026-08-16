@@ -18,6 +18,8 @@ The container is started via `docker-compose.yml` (`network_mode: host`, so the 
 docker exec origilink-dev bash -lc "chown -R 1000:1000 /workspace/<path>"
 ```
 
+**Never write debug screenshots/dumps into the repo**: `adb pull`/`uiautomator dump` output (screenshots, XML view dumps, etc. used while manually reproducing a bug) must never be pulled to a path under the repo root (`/workspace/...` inside the container, which is bind-mounted to the host repo) — anything left there risks being `git add`ed and pushed to GitHub. Pull to a container-local path (e.g. `/tmp/...`) and, if it needs to be viewed from the host (e.g. via the Read tool), `docker cp` it out to the host-side scratchpad directory instead, never into the project folder.
+
 **Platform scope**: only Android (and eventually iOS) is actively developed/tested. Web/Windows/Linux desktop builds exist as scaffolding but are not maintained or verified — don't assume they work.
 
 ## Commands
