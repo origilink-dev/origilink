@@ -160,8 +160,12 @@ pub fn revoke_invite(storage_dir: String, account_index: u32) -> Result<(), Stri
     save_file(&storage_dir, &file)
 }
 
-/// Records that an invite was used (a friend request against it was
-/// accepted), incrementing its use count.
+/// Records that an invite was used — a friend request from a new
+/// requester arrived against it — incrementing its use count. Called as
+/// soon as the request is received (see `sync.rs`'s `Watch::Invite`
+/// handler), not when it's later accepted, so `max_uses` caps how many
+/// strangers can even queue up a request against a leaked invite, not just
+/// how many get accepted.
 pub fn record_invite_use(storage_dir: String, account_index: u32) -> Result<(), String> {
     let mut file = load_file(&storage_dir);
     for invite in file.invites.iter_mut() {

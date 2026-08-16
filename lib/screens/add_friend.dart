@@ -16,6 +16,7 @@ import 'package:origilink/screens/logout.dart' show seedStorageKey;
 import 'package:origilink/services/account_sync.dart';
 import 'package:origilink/src/rust/api/friends.dart' as friends_api;
 import 'package:origilink/src/rust/api/invites.dart' as invites_api;
+import 'package:origilink/src/rust/api/keys.dart' as keys_api;
 import 'package:origilink/src/rust/api/sync.dart' as sync_api;
 
 /// Add-friend flow: show your own QR (an invite others scan to send a
@@ -519,6 +520,22 @@ class _ScanTabState extends State<_ScanTab> {
       return;
     }
 
+    const secureStorage = FlutterSecureStorage();
+    final mnemonic = await secureStorage.read(key: seedStorageKey);
+    // The invite's own pubkey is a fresh per-invite key (see
+    // `sync.rs`'s `InviteQrPayload` doc comment), so it can't be compared
+    // directly against this device's identity — but `uid` is
+    // account-stable, so a self-scan (e.g. testing against your own QR)
+    // is still caught here rather than silently creating a friendship
+    // with yourself.
+    if (mnemonic != null && payload.uid == await keys_api.getAccountUid(mnemonic: mnemonic)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l10n.cannotAddSelfMessage)));
+        setState(() => _handling = false);
+      }
+      return;
+    }
+
     if (!mounted) return;
     final confirmed = await showDialog<bool>(
       context: context,
@@ -546,8 +563,6 @@ class _ScanTabState extends State<_ScanTab> {
       return;
     }
 
-    const secureStorage = FlutterSecureStorage();
-    final mnemonic = await secureStorage.read(key: seedStorageKey);
     final storageDir = await getApplicationDocumentsDirectory();
     var alreadyFriend = false;
     if (mnemonic != null) {

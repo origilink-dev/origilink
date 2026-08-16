@@ -582,10 +582,21 @@ pub fn publish_account_chatstarted_backup(
 /// Requests relays to erase every one of this account's backup slots
 /// (NIP-09 deletion request). A no-op per-slot if that slot was never
 /// published.
+///
+/// Each slot's fetch-then-delete round trip is independent of every other
+/// slot's, so they all run concurrently (`join_all`) rather than one after
+/// another — sequentially awaiting all 11 slots was the entire reason
+/// pressing "Delete account" took several seconds to respond; this is the
+/// same "parallelize independent relay round trips" fix as
+/// [fetch_latest_backup_event]'s own per-relay `join_all` one level down.
+/// A single slot failing (relay error, etc.) doesn't abort the rest —
+/// callers already treat the whole operation as best-effort (see
+/// `logout.dart`'s call site, which proceeds with the local wipe
+/// regardless of this `Result`).
 pub fn delete_account_backup(mnemonic: String, relay_urls: Vec<String>) -> Result<(), String> {
     let keys = derive_keys(&mnemonic)?;
     runtime().block_on(async {
-        for d_tag in [
+        let tasks = [
             ACCOUNT_TEXT_D_TAG,
             ACCOUNT_AVATAR_D_TAG,
             ACCOUNT_RELAYS_D_TAG,
@@ -597,16 +608,23 @@ pub fn delete_account_backup(mnemonic: String, relay_urls: Vec<String>) -> Resul
             ACCOUNT_READSTATE_D_TAG,
             ACCOUNT_CONFIG_D_TAG,
             ACCOUNT_CHATSTARTED_D_TAG,
-        ] {
-            let Some(event) = fetch_latest_backup_event(&relay_urls, &keys.public_key(), d_tag).await?
-            else {
-                continue;
-            };
-            let deletion = EventBuilder::delete(EventDeletionRequest::new().id(event.id))
-                .sign_with_keys(&keys)
-                .map_err(|e| e.to_string())?;
-            publish_to_relays(&relay_urls, &deletion).await?;
-        }
+        ]
+        .into_iter()
+        .map(|d_tag| {
+            let relay_urls = &relay_urls;
+            let keys = &keys;
+            async move {
+                let Some(event) = fetch_latest_backup_event(relay_urls, &keys.public_key(), d_tag).await?
+                else {
+                    return Ok::<(), String>(());
+                };
+                let deletion = EventBuilder::delete(EventDeletionRequest::new().id(event.id))
+                    .sign_with_keys(keys)
+                    .map_err(|e| e.to_string())?;
+                publish_to_relays(relay_urls, &deletion).await
+            }
+        });
+        join_all(tasks).await;
         Ok(())
     })
 }
@@ -716,12 +734,18 @@ pub struct InviteQrPayload {
     pub uid: String,
 }
 
-/// Builds the QR payload (as JSON) for the given invite's account index.
+/// Builds the QR/copy-paste payload for the given invite's account index —
+/// base64 of the JSON, not raw JSON: the same data is scanned as a QR code
+/// (where the encoding is invisible either way) but also shown as a
+/// copy/paste text code (see `add_friend.dart`'s "Copy code" button), and
+/// a raw `{"pubkey":"...", ...}` blob looked like a broken/dangerous thing
+/// to paste rather than an opaque invite code.
 pub fn build_invite_qr_payload(
     mnemonic: String,
     storage_dir: String,
     account_index: u32,
 ) -> Result<String, String> {
+    use base64::Engine as _;
     let keys = derive_contact_keys(&mnemonic, account_index)?;
     let my_account = account::load_account(storage_dir.clone()).ok_or("no local account")?;
     let relays = relay::load_relay_list(storage_dir).urls;
@@ -732,12 +756,19 @@ pub fn build_invite_qr_payload(
         status_message: my_account.status_message,
         uid: derive_uid(&mnemonic)?,
     };
-    serde_json::to_string(&payload).map_err(|e| e.to_string())
+    let json = serde_json::to_string(&payload).map_err(|e| e.to_string())?;
+    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json))
 }
 
-/// Parses a scanned QR's JSON payload back into its fields.
+/// Parses a scanned/pasted invite code back into its fields — reverses
+/// [build_invite_qr_payload]'s base64 encoding first.
 pub fn parse_invite_qr_payload(data: String) -> Result<InviteQrPayload, String> {
-    serde_json::from_str(&data).map_err(|e| e.to_string())
+    use base64::Engine as _;
+    let json_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(data.trim())
+        .map_err(|e| e.to_string())?;
+    let json = String::from_utf8(json_bytes).map_err(|e| e.to_string())?;
+    serde_json::from_str(&json).map_err(|e| e.to_string())
 }
 
 /// Sends a friend request to whichever invite `invite_pubkey`/`invite_relays`
@@ -819,7 +850,11 @@ pub fn load_pending_friend_requests(storage_dir: String) -> Vec<PendingFriendReq
 pub fn accept_friend_request(
     mnemonic: String,
     storage_dir: String,
-    invite_account_index: u32,
+    // No longer used here — `use_count` is now recorded when the request
+    // is first received, not when it's accepted (see `record_invite_use`'s
+    // doc comment) — kept as a parameter so the caller's existing call
+    // sites and the pending-request data model don't need to change.
+    _invite_account_index: u32,
     requester_pubkey: String,
     requester_uid: String,
     requester_display_name: String,
@@ -853,7 +888,10 @@ pub fn accept_friend_request(
         .map_err(|e| e.to_string())?;
     runtime().block_on(publish_to_relays(&requester_relays, &event))?;
 
-    invites::record_invite_use(storage_dir.clone(), invite_account_index)?;
+    // `use_count` is now consumed as soon as a request from a *new*
+    // requester is received (see the `Watch::Invite` handler in
+    // `listen_for_friend_events`), not here — accepting is just turning an
+    // already-recorded pending request into a friend.
     let avatar_path = runtime().block_on(save_friend_avatar_link(
         &storage_dir,
         &requester_pubkey,
@@ -1885,6 +1923,26 @@ async fn listen_for_friend_events(
                     continue;
                 }
                 let pubkey = event.pubkey.to_hex();
+                // `max_uses` is enforced here, against distinct requesters,
+                // rather than at accept time — a leaked/publicly-posted
+                // invite QR would otherwise let unlimited strangers pile
+                // into `incoming_requests` right up until the moment one of
+                // them is accepted, since nothing before that point ever
+                // consumed the use count. Resends from an already-pending
+                // requester (same pubkey) don't count a second time.
+                let already_pending = requests::load_incoming(storage_dir)
+                    .iter()
+                    .any(|r| r.pubkey == pubkey);
+                if !already_pending {
+                    let still_active = invites::list_invites(storage_dir.to_string())
+                        .into_iter()
+                        .find(|i| i.account_index == *idx)
+                        .is_some_and(|i| i.is_active(now()));
+                    if !still_active {
+                        continue;
+                    }
+                    let _ = invites::record_invite_use(storage_dir.to_string(), *idx);
+                }
                 let _ = requests::add_incoming(
                     storage_dir,
                     *idx,
