@@ -264,18 +264,20 @@ pub fn leave_channel(storage_dir: String, channel_id: String) {
     save_joined_channels(&storage_dir, &channels);
 }
 
-/// Page size for [load_channel_messages].
-const CHANNEL_MESSAGE_PAGE_SIZE: usize = 200;
-
 /// Loads up to a page of `channel_id`'s messages, across `relay_urls`.
 /// `before` (when set) pages backward from that Unix timestamp instead of
 /// from "now" — pass the oldest-currently-loaded message's `created_at` to
 /// fetch the next page of history, mirroring `chat.rs`'s `load_older`
 /// pattern so the channel timeline isn't hard-capped at one page forever.
+/// `limit` caller-supplied (rather than a large fixed page size) so the
+/// Dart side can use the same small-page-plus-primed-next-page pattern as
+/// `chat.rs`'s `fetch_chat_history_page` instead of always paying for a
+/// big page up front.
 pub fn load_channel_messages(
     relay_urls: Vec<String>,
     channel_id: String,
     before: Option<i64>,
+    limit: u32,
 ) -> Vec<GlobalChannelMessage> {
     runtime().block_on(async {
         let mut filter = Filter::new()
@@ -284,9 +286,13 @@ pub fn load_channel_messages(
                 Ok(id) => id,
                 Err(_) => return Vec::new(),
             })
-            .limit(CHANNEL_MESSAGE_PAGE_SIZE);
+            .limit(limit as usize);
         if let Some(before) = before {
-            filter = filter.until(Timestamp::from(before.max(0) as u64));
+            // `-1`: `.until()` is inclusive, and `before` is always the
+            // createdAt of the oldest message already loaded — without
+            // this, that message counts against `limit` again on every
+            // subsequent page, wasting one slot of the page each time.
+            filter = filter.until(Timestamp::from((before.max(1) as u64).saturating_sub(1)));
         }
         let tasks = relay_urls.iter().map(|url| crate::relay_pool::request(url, &filter, REQUEST_TIMEOUT));
         let results = join_all(tasks).await;

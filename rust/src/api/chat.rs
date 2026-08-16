@@ -476,7 +476,12 @@ pub fn fetch_chat_history_page(
                 .authors([keys.public_key(), friend_pk])
                 .limit(limit as usize);
             if let Some(before) = before {
-                filter = filter.until(Timestamp::from(before.max(0) as u64));
+                // `-1`: `.until()` is inclusive, and `before` is always the
+                // createdAt of the oldest message already loaded (see
+                // [_loadOlderMessages]'s doc comment) — without this, that
+                // message counts against `limit` again on every subsequent
+                // page, wasting one slot of the page each time.
+                filter = filter.until(Timestamp::from((before.max(1) as u64).saturating_sub(1)));
             }
             let results = join_all(
                 relay_urls.iter().map(|url| relay_pool::request(url, &filter, HISTORY_FETCH_TIMEOUT)),
