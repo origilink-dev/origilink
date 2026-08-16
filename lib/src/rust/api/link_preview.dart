@@ -6,20 +6,45 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `attr`, `decode_entities`, `fetch_link_preview_async`, `html_tags`, `parse_meta`, `resolve_url`
+// These functions are ignored because they are not marked as `pub`: `attr`, `cache_path`, `decode_entities`, `fetch_link_preview_async`, `html_tags`, `load_disk_cache`, `memory_cache`, `parse_meta`, `resolve_url`, `save_disk_cache`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`
 
 /// Fetches `url` and extracts Open Graph (falling back to plain HTML) page
-/// metadata for an inline preview card. Errors (network failure, non-HTML
-/// response, no usable metadata at all) are returned as `Err` so the caller
-/// can just skip showing a card rather than showing an empty one.
-Future<LinkPreview> fetchLinkPreview({required String url}) =>
-    RustLib.instance.api.crateApiLinkPreviewFetchLinkPreview(url: url);
+/// metadata for an inline preview card, going out to the network only on a
+/// cache miss — a successful result is always kept in memory for the rest
+/// of this run, and additionally persisted to `link_preview_cache.json`
+/// under `storage_dir` when [persist] is true, so it's instant the next
+/// time this chat is opened too, not just for the rest of this session.
+/// Failures (network error, no usable metadata) are never cached to disk,
+/// so a page that's temporarily unreachable gets retried on the next view
+/// rather than being permanently remembered as failed.
+///
+/// [persist] should be false for public-channel messages: unlike a friend
+/// list, a channel's senders are an unbounded set of strangers, so writing
+/// every link anyone ever posts there to disk would grow the cache file
+/// without bound. The in-memory cache still applies either way, so a link
+/// re-fetched while scrolling the same channel session is still free.
+Future<LinkPreview> fetchLinkPreview({
+  required String storageDir,
+  required String url,
+  required bool persist,
+}) => RustLib.instance.api.crateApiLinkPreviewFetchLinkPreview(
+  storageDir: storageDir,
+  url: url,
+  persist: persist,
+);
 
 /// First `http(s)://` URL found in free-form message text, or `None` — used
 /// by the chat thread to decide whether to show a preview card at all.
 Future<String?> extractFirstUrl({required String text}) =>
     RustLib.instance.api.crateApiLinkPreviewExtractFirstUrl(text: text);
+
+/// Every distinct `http(s)://` URL found in free-form message text, in the
+/// order they first appear — used by the chat thread to show one preview
+/// card per link when a message contains more than one, instead of only
+/// unfurling the first.
+Future<List<String>> extractUrls({required String text}) =>
+    RustLib.instance.api.crateApiLinkPreviewExtractUrls(text: text);
 
 class LinkPreview {
   final String url;

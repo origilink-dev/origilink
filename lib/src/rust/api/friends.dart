@@ -75,6 +75,11 @@ Future<void> setFavoriteFriend({
 /// Also deletes their cached avatar file (`friend_avatars/<pubkey>_*`, see
 /// `sync.rs`'s `save_friend_avatar_link`) — otherwise it would sit on disk
 /// forever, never referenced again once the friend entry is gone.
+///
+/// Deliberately does *not* touch `blocked.json` — a blocked friend stays
+/// blocked after deletion, otherwise deleting one would be an accidental
+/// way to let them back in. See [list_blocked] for the only remaining way
+/// to undo that block once the friend entry itself is gone.
 Future<void> removeFriend({
   required String storageDir,
   required String pubkey,
@@ -82,6 +87,10 @@ Future<void> removeFriend({
   storageDir: storageDir,
   pubkey: pubkey,
 );
+
+/// Public FRB-facing wrapper around [load_blocked_entries].
+Future<List<BlockedAccount>> listBlocked({required String storageDir}) =>
+    RustLib.instance.api.crateApiFriendsListBlocked(storageDir: storageDir);
 
 /// Permanently blocks a contact pubkey — e.g. after rejecting their friend
 /// request, so re-sending it (with the same leaked/reused key) has no
@@ -107,6 +116,37 @@ Future<void> unblockPubkey({
   storageDir: storageDir,
   pubkey: pubkey,
 );
+
+/// One row for a "Blocked accounts" management screen — [BlockedEntry] is
+/// `pub(crate)` (an internal storage detail), so this is the public,
+/// FRB-facing shape exposing the same two fields. Needed because a block
+/// persists in `blocked.json` independently of `friends.json` (see
+/// [load_friends]'s doc comment and [remove_friend]): deleting a blocked
+/// friend removes their `friends.json` entry (and with it, the only other
+/// UI surface that could unblock them) but deliberately leaves the block
+/// itself in place, so there must be a way to see and undo it that doesn't
+/// depend on the friend still existing.
+class BlockedAccount {
+  final String pubkey;
+
+  /// Empty for a block predating this field (see [BlockedEntry::uid]'s
+  /// `#[serde(default)]`) — the UI should treat that as "unknown", not
+  /// display a blank.
+  final String uid;
+
+  const BlockedAccount({required this.pubkey, required this.uid});
+
+  @override
+  int get hashCode => pubkey.hashCode ^ uid.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BlockedAccount &&
+          runtimeType == other.runtimeType &&
+          pubkey == other.pubkey &&
+          uid == other.uid;
+}
 
 /// A confirmed friend: their per-relationship contact pubkey, and which of
 /// *our own* NIP-06 account indices we use to talk to them (see

@@ -85,14 +85,20 @@ Future<void> leaveChannel({
 /// from "now" — pass the oldest-currently-loaded message's `created_at` to
 /// fetch the next page of history, mirroring `chat.rs`'s `load_older`
 /// pattern so the channel timeline isn't hard-capped at one page forever.
+/// `limit` caller-supplied (rather than a large fixed page size) so the
+/// Dart side can use the same small-page-plus-primed-next-page pattern as
+/// `chat.rs`'s `fetch_chat_history_page` instead of always paying for a
+/// big page up front.
 Future<List<GlobalChannelMessage>> loadChannelMessages({
   required List<String> relayUrls,
   required String channelId,
   PlatformInt64? before,
+  required int limit,
 }) => RustLib.instance.api.crateApiGlobalChatLoadChannelMessages(
   relayUrls: relayUrls,
   channelId: channelId,
   before: before,
+  limit: limit,
 );
 
 /// Opens a live subscription on `channel_id` across `relay_urls`, streaming

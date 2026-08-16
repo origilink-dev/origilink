@@ -12,6 +12,9 @@
 
 use crate::api::attachment::http_client;
 use crate::api::sync::runtime;
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 const FETCH_TIMEOUT: Duration = Duration::from_secs(8);
@@ -20,7 +23,7 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(8);
 /// server.
 const MAX_BODY_BYTES: usize = 512 * 1024;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct LinkPreview {
     pub url: String,
     pub title: Option<String>,
@@ -29,12 +32,65 @@ pub struct LinkPreview {
     pub site_name: Option<String>,
 }
 
+fn cache_path(storage_dir: &str) -> std::path::PathBuf {
+    Path::new(storage_dir).join("link_preview_cache.json")
+}
+
+/// Process-lifetime cache so repeat fetches of the same URL within one app
+/// run (e.g. re-scrolling a thread) never hit the network twice, on top of
+/// the on-disk cache below (which survives app restarts).
+static MEMORY_CACHE: OnceLock<Mutex<HashMap<String, LinkPreview>>> = OnceLock::new();
+
+fn memory_cache() -> &'static Mutex<HashMap<String, LinkPreview>> {
+    MEMORY_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn load_disk_cache(storage_dir: &str) -> HashMap<String, LinkPreview> {
+    std::fs::read_to_string(cache_path(storage_dir))
+        .ok()
+        .and_then(|contents| serde_json::from_str(&contents).ok())
+        .unwrap_or_default()
+}
+
+fn save_disk_cache(storage_dir: &str, cache: &HashMap<String, LinkPreview>) {
+    if let Ok(json) = serde_json::to_string(cache) {
+        let _ = std::fs::write(cache_path(storage_dir), json);
+    }
+}
+
 /// Fetches `url` and extracts Open Graph (falling back to plain HTML) page
-/// metadata for an inline preview card. Errors (network failure, non-HTML
-/// response, no usable metadata at all) are returned as `Err` so the caller
-/// can just skip showing a card rather than showing an empty one.
-pub fn fetch_link_preview(url: String) -> Result<LinkPreview, String> {
-    runtime().block_on(fetch_link_preview_async(url))
+/// metadata for an inline preview card, going out to the network only on a
+/// cache miss — a successful result is always kept in memory for the rest
+/// of this run, and additionally persisted to `link_preview_cache.json`
+/// under `storage_dir` when [persist] is true, so it's instant the next
+/// time this chat is opened too, not just for the rest of this session.
+/// Failures (network error, no usable metadata) are never cached to disk,
+/// so a page that's temporarily unreachable gets retried on the next view
+/// rather than being permanently remembered as failed.
+///
+/// [persist] should be false for public-channel messages: unlike a friend
+/// list, a channel's senders are an unbounded set of strangers, so writing
+/// every link anyone ever posts there to disk would grow the cache file
+/// without bound. The in-memory cache still applies either way, so a link
+/// re-fetched while scrolling the same channel session is still free.
+pub fn fetch_link_preview(storage_dir: String, url: String, persist: bool) -> Result<LinkPreview, String> {
+    if let Some(preview) = memory_cache().lock().unwrap().get(&url) {
+        return Ok(preview.clone());
+    }
+    let disk_cache = load_disk_cache(&storage_dir);
+    if let Some(preview) = disk_cache.get(&url) {
+        memory_cache().lock().unwrap().insert(url, preview.clone());
+        return Ok(preview.clone());
+    }
+
+    let preview = runtime().block_on(fetch_link_preview_async(url.clone()))?;
+    memory_cache().lock().unwrap().insert(url.clone(), preview.clone());
+    if persist {
+        let mut disk_cache = disk_cache;
+        disk_cache.insert(url, preview.clone());
+        save_disk_cache(&storage_dir, &disk_cache);
+    }
+    Ok(preview)
 }
 
 async fn fetch_link_preview_async(url: String) -> Result<LinkPreview, String> {
@@ -47,7 +103,15 @@ async fn fetch_link_preview_async(url: String) -> Result<LinkPreview, String> {
         FETCH_TIMEOUT,
         http_client()
             .get(parsed.clone())
-            .header("User-Agent", "Mozilla/5.0 (compatible; OrigilinkBot/1.0)")
+            // A self-identifying bot UA (e.g. "OrigilinkBot/1.0") gets
+            // blocked by sites that only allowlist known crawlers (Discord,
+            // Twitter, ...) and don't recognize this app — a generic desktop
+            // browser UA gets the same HTML a real visitor would see.
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+                 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            )
             .send(),
     )
     .await
@@ -180,13 +244,22 @@ fn decode_entities(s: &str) -> String {
 /// First `http(s)://` URL found in free-form message text, or `None` — used
 /// by the chat thread to decide whether to show a preview card at all.
 pub fn extract_first_url(text: String) -> Option<String> {
+    extract_urls(text).into_iter().next()
+}
+
+/// Every distinct `http(s)://` URL found in free-form message text, in the
+/// order they first appear — used by the chat thread to show one preview
+/// card per link when a message contains more than one, instead of only
+/// unfurling the first.
+pub fn extract_urls(text: String) -> Vec<String> {
+    let mut urls = Vec::new();
     for word in text.split_whitespace() {
         let candidate = word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '/' && c != '%');
         if candidate.starts_with("http://") || candidate.starts_with("https://") {
-            if url::Url::parse(candidate).is_ok() {
-                return Some(candidate.to_string());
+            if url::Url::parse(candidate).is_ok() && !urls.iter().any(|u| u == candidate) {
+                urls.push(candidate.to_string());
             }
         }
     }
-    None
+    urls
 }
