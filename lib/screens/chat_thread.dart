@@ -13,6 +13,7 @@ import 'package:origilink/screens/login.dart';
 import 'package:origilink/screens/logout.dart' show seedStorageKey;
 import 'package:origilink/services/account_sync.dart';
 import 'package:origilink/services/ratchet_key.dart';
+import 'package:origilink/src/rust/api/account.dart' as account_api;
 import 'package:origilink/src/rust/api/attachment.dart' as attachment_api;
 import 'package:origilink/src/rust/api/chat.dart' as chat_api;
 import 'package:origilink/src/rust/api/friends.dart' as friends_api;
@@ -21,12 +22,15 @@ import 'package:origilink/src/rust/api/sync.dart' as sync_api;
 import 'package:origilink/widgets/link_preview_card.dart';
 import 'package:origilink/widgets/relative_date.dart';
 
-/// WhatsApp-style chat wallpaper and bubble colors, layered on top of the
-/// app's greige palette rather than replacing it elsewhere.
+/// Chat wallpaper background and the reply-preview accent bar color,
+/// layered on top of the app's greige palette rather than replacing it
+/// elsewhere. Near-white rather than the app's usual tan — the flat
+/// Discord-style rows (see `_MessageBubble`) have no bubble box to give
+/// message text its own contrasting surface anymore, so the page
+/// background itself has to carry that contrast against `textPrimary`.
 class _WaColors {
-  static const wallpaper = Color(0xFFE9DFCF);
+  static const wallpaper = Color(0xFFFAF8F4);
   static const bubbleMine = Color(0xFFD9C9AC);
-  static const bubbleTheirs = Color(0xFFFFFFFF);
 }
 
 /// One-to-one chat thread with [friend]: message history plus an input bar.
@@ -41,7 +45,6 @@ class ChatThreadScreen extends StatefulWidget {
     required this.onToggleFavorite,
     required this.onBlockFriend,
     required this.onUnblockFriend,
-    required this.onDeleteFriend,
     required this.onClearChat,
   });
 
@@ -54,7 +57,6 @@ class ChatThreadScreen extends StatefulWidget {
   final Future<void> Function(friends_api.Friend friend) onToggleFavorite;
   final Future<void> Function(friends_api.Friend friend) onBlockFriend;
   final Future<void> Function(friends_api.Friend friend) onUnblockFriend;
-  final Future<void> Function(friends_api.Friend friend) onDeleteFriend;
   final Future<void> Function(friends_api.Friend friend) onClearChat;
 
   @override
@@ -70,18 +72,59 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
   /// screenfuls at the current (slightly enlarged) bubble/font size rather
   /// than a fixed round number — fewer messages fit per screen now, so
   /// fewer need fetching to cover the same visible scroll range.
-  static const _initialHistoryLimit = 20;
+  ///
+  /// Smaller than it used to be (was 20): [_loadInitialHistory] immediately
+  /// primes one extra page beyond this after it loads (see its call to
+  /// [_loadOlderMessages] at the end), so there's always a full page of
+  /// already-loaded, already-preview-fetched messages sitting just out of
+  /// view — the same total buffer as before (15 visible + 15 primed = 30),
+  /// just split into two pages so the "next page" prefetch machinery
+  /// naturally keeps one page ahead of the scroll position going forward.
+  static const _initialHistoryLimit = 15;
 
   /// How many older messages [_loadOlderMessages] fetches per page once the
   /// user scrolls up past what's already loaded.
-  static const _olderPageLimit = 20;
+  static const _olderPageLimit = 15;
 
   final _messageController = TextEditingController();
   final _scrollController = ScrollController();
   List<chat_api.ChatMessage> _messages = [];
+
+  /// Ids already handed to [prefetchLinkPreviews]/[_prefetchAttachments] —
+  /// [chat_api.fetchChatHistoryPage] returns the *entire* merged local
+  /// history on every call (not just the newly-fetched page), so without
+  /// this every reload (a scroll-triggered older page, a live incoming
+  /// message, ...) would re-extract URLs from and re-issue prefetch calls
+  /// for every message ever loaded in this thread, not just the new ones —
+  /// harmless (the Rust-side caches make it a no-op) but a growing amount
+  /// of wasted FRB round-trips as history grows.
+  final _prefetchedMessageIds = <String>{};
   bool _sending = false;
   bool _loadingOlder = false;
   bool _hasMoreOlder = true;
+
+  /// Bumped at the start of every `_messages`-replacing load
+  /// (`_loadInitialHistory`, `_loadHistory`, `_loadOlderMessages`). Each of
+  /// those methods captures the value right after bumping it and checks it
+  /// again before its own `setState` calls — if another load started (and
+  /// bumped it again) in the meantime, the stale one skips its `setState`
+  /// instead of clobbering newer data with what it fetched. Without this,
+  /// sending the very first message of a brand-new chat while
+  /// `_loadInitialHistory`'s background relay reconcile was still in
+  /// flight could show the message immediately and then have it vanish a
+  /// moment later when that older, slower fetch finally resolved and
+  /// overwrote `_messages` with its now-stale snapshot.
+  int _historyLoadGeneration = 0;
+
+  /// Set while a lookahead check from [itemBuilder]'s index-based trigger
+  /// is already queued via `addPostFrameCallback` — `cacheExtent: 3000`
+  /// means every row within one page of the top gets rebuilt (and its
+  /// lookahead check re-run) on *any* rebuild of this screen, not just
+  /// scroll-driven ones, so without this a single frame with several
+  /// qualifying rows queues that many redundant callbacks (each a no-op
+  /// past the first, thanks to [_loadOlderMessages]'s own guards, but still
+  /// wasted allocation/scheduling).
+  bool _lookaheadScheduled = false;
   chat_api.ChatMessage? _replyingTo;
 
   /// Set once a file is picked, cleared once it's sent (or removed) — the
@@ -115,16 +158,29 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
   /// send ratchet-encrypted messages to — see `ratchet.rs`'s module doc.
   bool _friendHasRatchetDevice = false;
 
+  /// This device's own avatar — shown on the group-header row for
+  /// consecutive own messages, Discord-style (see `_MessageBubble`), same
+  /// as [_friend]'s avatar is for theirs.
+  String? _myAvatarPath;
+
   @override
   void initState() {
     super.initState();
     _loadInitialHistory();
     _subscribe();
     _initForwardSecrecy();
+    _loadMyAvatar();
     _scrollController.addListener(_onScroll);
     chat_api.maxMessageChars().then((max) {
       if (mounted) setState(() => _maxMessageChars = max);
     });
+  }
+
+  Future<void> _loadMyAvatar() async {
+    final storageDir = await getApplicationDocumentsDirectory();
+    final account = await account_api.loadAccount(storageDir: storageDir.path);
+    if (!mounted) return;
+    setState(() => _myAvatarPath = account?.avatarPath);
   }
 
   /// Ensures this device has a forward-secrecy identity, announces it to
@@ -249,7 +305,64 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
   /// the same batch) shows up right after — but by the time this runs,
   /// the local copy is already the fully-resolved result of the *previous*
   /// sync, so there's nothing left mid-resolution to flash.
+  /// Same idea as [prefetchLinkPreviews]: fires off (and ignores the
+  /// result of) a download for every image attachment across [messages],
+  /// so `attachment.rs`'s on-disk cache (keyed by message id) is already
+  /// warm by the time `_AttachmentPreview` actually builds for one of
+  /// these messages and starts its own download — which then just hits
+  /// that cache and returns instantly instead of re-downloading. Non-image
+  /// attachments are skipped, matching `_AttachmentPreviewState.initState`
+  /// only eagerly downloading images (other file types stay tap-to-download
+  /// so a chat full of arbitrary files never triggers a wall of background
+  /// downloads).
+  /// [messages] should be newest-first — see [_prefetchNewMessages]'s doc
+  /// comment on why iteration order here determines
+  /// [_fetchSemaphore] priority.
+  void _prefetchAttachments(List<chat_api.ChatMessage> messages, String mnemonic, String storageDir) {
+    final imageMessages = messages.where((m) => m.attachment?.mimeType.startsWith('image/') ?? false);
+    for (final message in imageMessages) {
+      final attachment = message.attachment!;
+      unawaited(
+        withPrefetchLimit(() async {
+          try {
+            await attachment_api.downloadChatAttachment(
+              mnemonic: mnemonic,
+              storageDir: storageDir,
+              friendPubkey: widget.friend.pubkey,
+              messageId: message.id,
+              url: attachment.url,
+              encKey: attachment.encKey,
+            );
+          } catch (_) {
+            // Swallowed — the real widget's own download attempts (and can
+            // report failure for) the same attachment later.
+          }
+        }),
+      );
+    }
+  }
+
+  /// Filters [messages] down to ones not already handed to the prefetch
+  /// functions (see [_prefetchedMessageIds]'s doc comment) before firing
+  /// them off, instead of reprocessing the whole (ever-growing) history on
+  /// every call site that reloads `_messages`.
+  ///
+  /// Processed newest-first (`messages` itself is oldest-first, so this
+  /// reverses): [prefetchLinkPreviews]/[_prefetchAttachments] fire every
+  /// URL/image at once but [_fetchSemaphore] still bounds how many run
+  /// concurrently, so call order decides which ones claim a slot first —
+  /// the newest messages are the ones on/near screen right now, so their
+  /// previews/images should win that race over older, likely still
+  /// off-screen ones.
+  void _prefetchNewMessages(List<chat_api.ChatMessage> messages, String mnemonic, String storageDir) {
+    final newOnes = messages.reversed.where((m) => _prefetchedMessageIds.add(m.id)).toList();
+    if (newOnes.isEmpty) return;
+    prefetchLinkPreviews(newOnes.map((m) => m.content));
+    _prefetchAttachments(newOnes, mnemonic, storageDir);
+  }
+
   Future<void> _loadInitialHistory() async {
+    final gen = ++_historyLoadGeneration;
     const secureStorage = FlutterSecureStorage();
     final mnemonic = await secureStorage.read(key: seedStorageKey);
     if (mnemonic == null || !mounted) return;
@@ -266,12 +379,13 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     );
     if (!mounted) return;
     final mergedLocal = await _mergeWithRatchetHistory(local);
-    if (!mounted) return;
+    if (!mounted || gen != _historyLoadGeneration) return;
     setState(() {
       _messages = mergedLocal;
       _hasMoreOlder = hasMore;
     });
     _scrollToBottom();
+    _prefetchNewMessages(_messages, mnemonic, storageDir.path);
 
     final synced = await chat_api.fetchChatHistoryPage(
       mnemonic: mnemonic,
@@ -282,14 +396,20 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     );
     if (!mounted) return;
     final mergedSynced = await _mergeWithRatchetHistory(synced);
-    if (!mounted) return;
+    if (!mounted || gen != _historyLoadGeneration) return;
     setState(() => _messages = mergedSynced);
     _scrollToBottom();
+    _prefetchNewMessages(_messages, mnemonic, storageDir.path);
     await chat_api.markThreadRead(
       storageDir: storageDir.path,
       friendPubkey: widget.friend.pubkey,
     );
     unawaited(publishAccountReadStateBackup());
+    // Prime one page of older messages (and their previews) immediately,
+    // before the user has scrolled at all — see [_initialHistoryLimit]'s
+    // doc comment. `_loadOlderMessages` itself already no-ops if there's
+    // nothing more to load.
+    if (gen == _historyLoadGeneration) unawaited(_loadOlderMessages());
   }
 
   /// Fetches another page of older messages once the user scrolls up past
@@ -299,8 +419,17 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
   /// [chat_api.fetchChatHistoryPage] already returns the full merged local
   /// history (not just the new page), so the result can replace
   /// `_messages` outright — no manual prepend/dedupe needed.
-  Future<void> _loadOlderMessages() async {
-    if (_messages.isEmpty) return;
+  /// [prime] loads are the one-page lookahead this fires on itself once a
+  /// real (scroll-triggered) page finishes — so there's always a second
+  /// page already sitting in `_messages` by the time the user scrolls into
+  /// what was just the first one, instead of only ever keeping exactly one
+  /// page of buffer above the viewport (which meant a relay round-trip was
+  /// on the critical path of every single scroll near the top). Priming
+  /// calls don't themselves prime further — that would chain into loading
+  /// the entire thread history up front, defeating pagination entirely.
+  Future<void> _loadOlderMessages({bool prime = false}) async {
+    if (_messages.isEmpty || _loadingOlder || !_hasMoreOlder) return;
+    final gen = ++_historyLoadGeneration;
     setState(() => _loadingOlder = true);
     const secureStorage = FlutterSecureStorage();
     final mnemonic = await secureStorage.read(key: seedStorageKey);
@@ -310,7 +439,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     }
     final storageDir = await getApplicationDocumentsDirectory();
     final oldestBefore = _messages.first.createdAt;
-    final merged = await chat_api.fetchChatHistoryPage(
+    final page = await chat_api.fetchChatHistoryPage(
       mnemonic: mnemonic,
       storageDir: storageDir.path,
       friendPubkey: widget.friend.pubkey,
@@ -318,11 +447,43 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
       limit: _olderPageLimit,
     );
     if (!mounted) return;
-    final gotOlder = merged.isNotEmpty && merged.first.createdAt < oldestBefore;
+    // [fetchChatHistoryPage] only reads `chat.lmdb` (the NIP-17 baseline
+    // channel) — forward-secret messages live client-side only, in a
+    // separate encrypted file (see `ratchet.rs`'s module doc), so without
+    // re-merging them here every ratchet message currently in `_messages`
+    // would be wiped from view the moment this runs (e.g. the very next
+    // frame after sending the first ratchet message to a friend, via
+    // `itemBuilder`'s lookahead trigger).
+    final merged = await _mergeWithRatchetHistory(page);
+    if (!mounted) return;
+    if (gen != _historyLoadGeneration) {
+      setState(() => _loadingOlder = false);
+      return;
+    }
+    final gotOlder = page.isNotEmpty && page.first.createdAt < oldestBefore;
     setState(() {
       _messages = merged;
       _hasMoreOlder = gotOlder;
       _loadingOlder = false;
+    });
+    _prefetchNewMessages(_messages, mnemonic, storageDir.path);
+    if (!prime && _hasMoreOlder) {
+      unawaited(_loadOlderMessages(prime: true));
+    }
+    // While this page was loading, the user may have kept scrolling and
+    // already be back within the trigger threshold of the new (still not
+    // far enough ahead) edge — a `ListView` content change alone doesn't
+    // re-fire the scroll-position listener that normally starts the next
+    // load, so without this a fast scroll (or one that stops right at the
+    // stale edge) could stall until the user nudges the list again.
+    // Calling `_onScroll` synchronously here would read `maxScrollExtent`
+    // from *before* this frame's newly-inserted messages are laid out
+    // (`setState` only schedules the rebuild, it hasn't run yet), so the
+    // check would always see the old, still-too-close edge and could
+    // trigger nothing — deferring to the post-frame callback lets it read
+    // the real, grown `maxScrollExtent`.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _onScroll();
     });
   }
 
@@ -332,6 +493,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
   /// relay round-trip is needed here (and re-fetching from relays on every
   /// single incoming message would be wasteful).
   Future<void> _loadHistory() async {
+    final gen = ++_historyLoadGeneration;
     const secureStorage = FlutterSecureStorage();
     final mnemonic = await secureStorage.read(key: seedStorageKey);
     if (mnemonic == null || !mounted) return;
@@ -343,9 +505,10 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     );
     if (!mounted) return;
     final merged = await _mergeWithRatchetHistory(history);
-    if (!mounted) return;
+    if (!mounted || gen != _historyLoadGeneration) return;
     setState(() => _messages = merged);
     _scrollToBottom();
+    _prefetchNewMessages(_messages, mnemonic, storageDir.path);
     await chat_api.markThreadRead(
       storageDir: storageDir.path,
       friendPubkey: widget.friend.pubkey,
@@ -401,7 +564,6 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
           onToggleFavorite: widget.onToggleFavorite,
           onBlockFriend: _handleBlock,
           onUnblockFriend: _handleUnblock,
-          onDeleteFriend: widget.onDeleteFriend,
           onClearChat: widget.onClearChat,
           messageEvents: widget.messageEvents,
         ),
@@ -435,6 +597,12 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     if (confirmed != true) return;
     await widget.onClearChat(widget.friend);
     if (!context.mounted) return;
+    // Invalidates any reconcile fetch already in flight from before the
+    // clear, the same way sending a message does — otherwise a stale
+    // fetchChatHistoryPage/loadChatHistory result that started before the
+    // clear could still land afterward and repopulate `_messages` with
+    // messages the user just cleared.
+    ++_historyLoadGeneration;
     setState(() => _messages = []);
     Navigator.of(context).pop();
   }
@@ -1048,6 +1216,15 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                         // which briefly shows old messages before snapping
                         // down.
                         reverse: true,
+                        // Default cacheExtent (~250px) only lays out rows
+                        // just past the viewport edge — so even with data
+                        // (images/previews) already prefetched, the row's
+                        // own widget/layout is still built for the first
+                        // time right as it scrolls into view, reading as a
+                        // last-second pop-in. A few screens' worth of
+                        // headroom lets rows get laid out well before
+                        // they're actually visible.
+                        cacheExtent: 3000,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 8,
                           vertical: 12,
@@ -1073,26 +1250,35 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                             );
                           }
                           final reversedIndex = _messages.length - 1 - index;
+                          // Index-based lookahead: `cacheExtent: 3000` makes
+                          // `itemBuilder` run for rows well before they're
+                          // actually on screen, so this fires (and, via
+                          // [_loadOlderMessages]'s own `_loadingOlder`/
+                          // `_hasMoreOlder` guards, safely no-ops when
+                          // already satisfied) whenever the buffer above the
+                          // built row drops under one page — a directly
+                          // known remaining-message count, unlike
+                          // [_onScroll]'s pixel-distance guess which can't
+                          // tell how many messages that distance represents.
+                          // Deferred to a post-frame callback: `itemBuilder`
+                          // runs during this list's layout pass, and
+                          // [_loadOlderMessages] calls `setState`
+                          // synchronously on entry — calling it straight
+                          // from here would be `setState` during
+                          // build/layout, which Flutter disallows and can
+                          // abort the frame, which is exactly what made
+                          // scrolling get stuck instead of loading more.
+                          if (reversedIndex < _olderPageLimit && !_lookaheadScheduled) {
+                            _lookaheadScheduled = true;
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              _lookaheadScheduled = false;
+                              if (mounted) unawaited(_loadOlderMessages());
+                            });
+                          }
                           final message = _messages[reversedIndex];
                           final previous = reversedIndex > 0
                               ? _messages[reversedIndex - 1]
                               : null;
-                          final startOfGroup =
-                              previous == null ||
-                              previous.isMine != message.isMine;
-                          // The avatar (and the bubble's pointed "tail"
-                          // corner) belongs on the *last* message of a
-                          // consecutive run from the same sender — the one
-                          // closest to the next group/the composer — not the
-                          // first, matching the WhatsApp-style convention
-                          // this UI otherwise follows. `startOfGroup` is kept
-                          // separately since it still governs the extra gap
-                          // above a new group.
-                          final next = reversedIndex < _messages.length - 1
-                              ? _messages[reversedIndex + 1]
-                              : null;
-                          final endOfGroup =
-                              next == null || next.isMine != message.isMine;
                           final messageDate = DateTime.fromMillisecondsSinceEpoch(
                             message.createdAt.toInt() * 1000,
                           );
@@ -1106,16 +1292,28 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                               previousDate.year != messageDate.year ||
                               previousDate.month != messageDate.month ||
                               previousDate.day != messageDate.day;
+                          // Discord-style grouping: the avatar/name/time
+                          // header belongs on the *first* message of a
+                          // consecutive run from the same sender — reset by
+                          // a sender change, a day boundary, or too long a
+                          // gap (5 min) even from the same sender, so a
+                          // header reappears if the conversation resumes
+                          // after a while.
+                          final startOfGroup =
+                              previous == null ||
+                              previous.isMine != message.isMine ||
+                              isNewDay ||
+                              messageDate.difference(previousDate).inMinutes.abs() > 5;
                           final bubble = _MessageBubble(
                             message: message,
-                            showTail: endOfGroup,
-                            topGap: startOfGroup,
+                            groupStart: startOfGroup,
                             repliedMessage: message.replyTo != null
                                 ? messagesById[message.replyTo]
                                 : null,
                             friendAvatarPath: _friend.avatarPath,
                             friendDisplayName: _friend.displayName,
                             friendPubkey: widget.friend.pubkey,
+                            myAvatarPath: _myAvatarPath,
                             onAvatarTap: () => _openProfile(context),
                             onLongPress: () => _showMessageMenu(message),
                           );
@@ -1221,13 +1419,13 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                 ),
               ),
             Container(
-              // Matches the AppBar's background instead of inheriting the
-              // chat wallpaper color behind it, so the bar framing the
-              // message list top and bottom is visually consistent — must
-              // be the outer widget so its color fills the SafeArea's
-              // bottom inset padding too (see the outer SafeArea's
-              // `bottom: false`), not just the padded content inside it.
-              color: OrigilinkColors.background,
+              // Same wallpaper as the message list (not the darker
+              // OrigilinkColors.background) so the composer bar doesn't
+              // read as a separately-tinted strip — must be the outer
+              // widget so its color fills the SafeArea's bottom inset
+              // padding too (see the outer SafeArea's `bottom: false`),
+              // not just the padded content inside it.
+              color: _WaColors.wallpaper,
               child: SafeArea(
                 top: false,
                 child: _Composer(
@@ -1248,22 +1446,28 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
   }
 }
 
+/// Discord-style flat row (no bubble background, always left-aligned):
+/// avatar/name/time only shown on [groupStart] — a sender's consecutive
+/// messages (same day, within 5 minutes, see the caller's `startOfGroup`)
+/// share one header instead of repeating it — which reads well at both
+/// phone width and, eventually, a wide desktop/web layout, unlike a
+/// bubble's fixed max-width. Own messages are told apart purely by the
+/// sender name ("You" in an accent color), not by side/background color.
 class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
     required this.message,
-    required this.showTail,
-    required this.topGap,
+    required this.groupStart,
     required this.repliedMessage,
     required this.friendAvatarPath,
     required this.friendDisplayName,
     required this.friendPubkey,
+    required this.myAvatarPath,
     required this.onAvatarTap,
     required this.onLongPress,
   });
 
   final chat_api.ChatMessage message;
-  final bool showTail;
-  final bool topGap;
+  final bool groupStart;
 
   /// The message [message.replyTo] points to, already resolved from the
   /// currently-loaded history — null both when there's no reply and when
@@ -1273,6 +1477,11 @@ class _MessageBubble extends StatelessWidget {
   final String? friendAvatarPath;
   final String friendDisplayName;
   final String friendPubkey;
+
+  /// This device's own avatar, shown on the header row of a consecutive
+  /// run of own messages — null falls back to the generic person icon,
+  /// same as [friendAvatarPath].
+  final String? myAvatarPath;
   final VoidCallback onAvatarTap;
   final VoidCallback onLongPress;
 
@@ -1287,11 +1496,8 @@ class _MessageBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final isMine = message.isMine;
-    final bubbleColor = isMine ? _WaColors.bubbleMine : _WaColors.bubbleTheirs;
-    final radius = const Radius.circular(12);
-    final tailRadius = const Radius.circular(2);
 
-    final bubbleContent = message.isDeleted
+    final content = message.isDeleted
         ? Text(
             l10n.messageUnsentLabel,
             style: TextStyle(
@@ -1306,17 +1512,9 @@ class _MessageBubble extends StatelessWidget {
             children: [
               if (message.replyTo != null)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.only(bottom: 4),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    // Row defaults to MainAxisSize.max (always fills
-                    // available width) and Expanded always claims all
-                    // remaining space regardless of content — either alone
-                    // would force every reply-quoting bubble to the full
-                    // maxWidth even for a one-word message. `min` + a
-                    // loose-fit Flexible below let the row (and so the
-                    // bubble) shrink to whatever the quoted text actually
-                    // needs, only growing up to maxWidth when it must wrap.
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       // A thin rule rather than a filled box — the quoted
@@ -1440,63 +1638,22 @@ class _MessageBubble extends StatelessWidget {
             ],
           );
 
-    final bubble = GestureDetector(
-      onLongPress: onLongPress,
-      child: Container(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.7,
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        decoration: BoxDecoration(
-          color: bubbleColor,
-          borderRadius: BorderRadius.only(
-            topLeft: radius,
-            topRight: radius,
-            bottomLeft: !isMine && showTail ? tailRadius : radius,
-            bottomRight: isMine && showTail ? tailRadius : radius,
-          ),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x14000000),
-              blurRadius: 1,
-              offset: Offset(0, 1),
-            ),
-          ],
-        ),
-        child: bubbleContent,
-      ),
-    );
-
-    final time = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: Text(
-        _formatTime(message.createdAt.toInt()),
-        style: TextStyle(
-          fontSize: 11,
-          color: OrigilinkColors.textSecondary.withValues(alpha: 0.8),
-        ),
-      ),
-    );
-
-    final hasAvatar =
-        friendAvatarPath != null && File(friendAvatarPath!).existsSync();
-    final avatar = SizedBox(
-      width: 28,
-      height: 28,
-      child: showTail
+    final avatarPath = isMine ? myAvatarPath : friendAvatarPath;
+    final hasAvatar = avatarPath != null && File(avatarPath).existsSync();
+    final avatarColumn = SizedBox(
+      width: 36,
+      child: groupStart
           ? GestureDetector(
-              onTap: onAvatarTap,
+              onTap: isMine ? null : onAvatarTap,
               child: CircleAvatar(
-                radius: 14,
+                radius: 16,
                 backgroundColor: OrigilinkColors.surface,
-                backgroundImage: hasAvatar
-                    ? FileImage(File(friendAvatarPath!))
-                    : null,
+                backgroundImage: hasAvatar ? FileImage(File(avatarPath)) : null,
                 child: hasAvatar
                     ? null
                     : const Icon(
                         Icons.person_outline,
-                        size: 14,
+                        size: 16,
                         color: OrigilinkColors.textSecondary,
                       ),
               ),
@@ -1504,28 +1661,54 @@ class _MessageBubble extends StatelessWidget {
           : null,
     );
 
-    return Container(
-      margin: EdgeInsets.only(
-        top: topGap ? 6 : 2,
-        bottom: 2,
-        left: isMine ? 40 : 4,
-        right: isMine ? 4 : 40,
-      ),
-      child: Row(
-        mainAxisAlignment: isMine
-            ? MainAxisAlignment.end
-            : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        mainAxisSize: MainAxisSize.max,
-        // The bubble's `maxWidth` constraint (70% of screen width) is only
-        // an upper bound — without wrapping it in Flexible, the Row treats
-        // it as wanting exactly that width regardless of the avatar/time
-        // siblings also taking up space, which overflows on narrower
-        // screens once the bubble padding/font grew. Flexible lets it
-        // shrink below its max and wrap its text into more lines instead.
-        children: isMine
-            ? [time, Flexible(child: bubble)]
-            : [avatar, const SizedBox(width: 4), Flexible(child: bubble), time],
+    return GestureDetector(
+      onLongPress: onLongPress,
+      child: Container(
+        margin: EdgeInsets.only(top: groupStart ? 12 : 1, bottom: 1),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            avatarColumn,
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (groupStart)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Text(
+                            isMine ? l10n.youLabel : friendDisplayName,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: isMine
+                                  ? OrigilinkColors.primaryDark
+                                  : OrigilinkColors.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _formatTime(message.createdAt.toInt()),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: OrigilinkColors.textSecondary.withValues(alpha: 0.8),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  content,
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1708,13 +1891,6 @@ class _Composer extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              IconButton(
-                icon: const Icon(
-                  Icons.attach_file,
-                  color: OrigilinkColors.textSecondary,
-                ),
-                onPressed: sending ? null : onAttach,
-              ),
               Expanded(
                 child: Container(
                   constraints: const BoxConstraints(minHeight: 44),
@@ -1732,29 +1908,44 @@ class _Composer extends StatelessWidget {
                       ),
                     ],
                   ),
-                  child: TextField(
-                    controller: controller,
-                    minLines: 1,
-                    maxLines: 5,
-                    maxLength: maxLength,
-                    maxLengthEnforcement: MaxLengthEnforcement.none,
-                    textInputAction: TextInputAction.send,
-                    onSubmitted: (_) => onSend(),
-                    decoration: InputDecoration(
-                      hintText: hint,
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 11,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      IconButton(
+                        icon: const Icon(
+                          Icons.attach_file,
+                          color: OrigilinkColors.textSecondary,
+                        ),
+                        onPressed: sending ? null : onAttach,
                       ),
-                      counterText: (overLimit || nearLimit)
-                          ? '$length/$maxLength'
-                          : '',
-                      counterStyle: TextStyle(
-                        color: warnColor,
-                        fontWeight: FontWeight.w600,
+                      Expanded(
+                        child: TextField(
+                          controller: controller,
+                          minLines: 1,
+                          maxLines: 5,
+                          maxLength: maxLength,
+                          maxLengthEnforcement: MaxLengthEnforcement.none,
+                          textInputAction: TextInputAction.send,
+                          onSubmitted: (_) => onSend(),
+                          decoration: InputDecoration(
+                            hintText: hint,
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.only(
+                              right: 14,
+                              top: 11,
+                              bottom: 11,
+                            ),
+                            counterText: (overLimit || nearLimit)
+                                ? '$length/$maxLength'
+                                : '',
+                            counterStyle: TextStyle(
+                              color: warnColor,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ),

@@ -15,6 +15,8 @@ import 'package:origilink/src/rust/api/friends.dart' as friends_api;
 import 'package:origilink/src/rust/api/groups.dart' as groups_api;
 import 'package:origilink/src/rust/api/keys.dart' as keys_api;
 import 'package:origilink/src/rust/api/sync.dart' as sync_api;
+import 'package:origilink/widgets/link_preview_card.dart' show withPrefetchLimit;
+import 'package:origilink/widgets/relative_date.dart';
 
 /// A group's message thread — a deliberately simpler cousin of
 /// [ChatThreadScreen]: no edit/unsend/reply, since group delivery (see
@@ -41,6 +43,31 @@ class _GroupThreadScreenState extends State<GroupThreadScreen> {
   bool _sending = false;
   StreamSubscription<sync_api.FriendEvent>? _sub;
 
+  /// Unlike `chat_thread.dart`/`global_chat_thread.dart`, group message
+  /// history has no relay round-trip to page through — `loadGroupMessages`
+  /// already reads everything for this group from local storage in one
+  /// (cheap) call, see `groups.rs`'s module doc on group delivery. But
+  /// rendering the full list into the `ListView` regardless still meant
+  /// building every message in a long-lived group's history up front; this
+  /// windows the same already-loaded `_messages` down to just its tail,
+  /// widening by [_pageSize] as the user scrolls up toward older messages
+  /// — same visible pagination behavior as the other two threads, just
+  /// slicing already-in-memory data instead of fetching more of it.
+  static const _pageSize = 30;
+  int _visibleCount = _pageSize;
+
+  /// Ids already handed to [_prefetchAttachments] — same purpose as
+  /// `chat_thread.dart`'s `_prefetchedMessageIds`: [_load] re-reads and
+  /// re-sets the entire `_messages` list on every reload (a live event, an
+  /// expanded [_visibleCount], ...), so without this every reload would
+  /// re-issue a prefetch for every image ever seen in this group, not just
+  /// newly-visible ones.
+  final _prefetchedMessageIds = <String>{};
+
+  /// Same coalescing guard as `chat_thread.dart`'s field of the same
+  /// name — see its doc comment.
+  bool _lookaheadScheduled = false;
+
   String? _pendingAttachmentPath;
   String? _pendingAttachmentName;
   String? _pendingAttachmentMimeType;
@@ -60,14 +87,76 @@ class _GroupThreadScreenState extends State<GroupThreadScreen> {
         _reloadGroup();
       }
     });
+    _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
     _sub?.cancel();
     _controller.dispose();
+    _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
+  }
+
+  /// Same reversed-list trigger as `chat_thread.dart`'s `_onScroll` — see
+  /// its doc comment. The list here is reversed too (see the
+  /// `ListView.builder` below) specifically so widening [_visibleCount]
+  /// doesn't shift the user's current scroll position: a non-reversed list
+  /// has no stable anchor when items are prepended (the newly-visible
+  /// older messages would push everything below them down by their height,
+  /// making `pixels` point at different content than before), whereas a
+  /// reversed list's anchor (offset 0) stays pinned to the newest message
+  /// regardless of how much history is now visible above it.
+  void _onScroll() {
+    if (!_scrollController.hasClients || _visibleCount >= _messages.length) return;
+    final position = _scrollController.position;
+    if (position.maxScrollExtent <= 0) return;
+    if (position.pixels >= position.maxScrollExtent - 200) {
+      _expandVisibleWindow();
+    }
+  }
+
+  void _expandVisibleWindow() {
+    if (!mounted || _visibleCount >= _messages.length) return;
+    setState(() => _visibleCount = (_visibleCount + _pageSize).clamp(0, _messages.length));
+    _prefetchVisibleAttachments();
+  }
+
+  /// Same idea as `chat_thread.dart`'s `_prefetchAttachments`: fires off
+  /// (and ignores the result of) a download for every image attachment
+  /// currently within [_visibleCount], so `_GroupAttachmentPreview`'s own
+  /// eager download (see its `initState`) just hits an already-warm cache
+  /// instead of starting cold once its row actually builds. Newest-first
+  /// (the tail of `_messages`, reversed) for the same reason as
+  /// `chat_thread.dart`'s `_prefetchNewMessages` — the newest messages are
+  /// the ones on/near screen right now, so they should win
+  /// [_fetchSemaphore]'s limited concurrent slots over older ones still
+  /// further up the (widening) visible window.
+  void _prefetchVisibleAttachments() {
+    final visible = _messages.length <= _visibleCount ? _messages : _messages.sublist(_messages.length - _visibleCount);
+    final newOnes = visible.reversed.where((m) => _prefetchedMessageIds.add(m.id));
+    for (final message in newOnes) {
+      final attachment = message.attachment;
+      if (attachment == null || !attachment.mimeType.startsWith('image/')) continue;
+      unawaited(
+        withPrefetchLimit(() async {
+          final storageDir = await getApplicationDocumentsDirectory();
+          try {
+            await groups_api.downloadGroupAttachment(
+              storageDir: storageDir.path,
+              groupId: widget.group.id,
+              messageId: message.id,
+              url: attachment.url,
+              encKey: attachment.encKey,
+            );
+          } catch (_) {
+            // Swallowed — `_GroupAttachmentPreview`'s own download attempt
+            // (and can report failure for) the same attachment later.
+          }
+        }),
+      );
+    }
   }
 
   Future<void> _load() async {
@@ -82,9 +171,11 @@ class _GroupThreadScreenState extends State<GroupThreadScreen> {
     );
     if (!mounted) return;
     setState(() => _messages = messages);
+    _prefetchVisibleAttachments();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Reversed list: offset 0 is the bottom (newest message).
       if (_scrollController.hasClients) {
-        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+        _scrollController.jumpTo(0);
       }
     });
   }
@@ -258,7 +349,7 @@ class _GroupThreadScreenState extends State<GroupThreadScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Scaffold(
-      backgroundColor: OrigilinkColors.background,
+      backgroundColor: const Color(0xFFFAF8F4),
       appBar: AppBar(
         backgroundColor: OrigilinkColors.background,
         elevation: 0,
@@ -291,49 +382,65 @@ class _GroupThreadScreenState extends State<GroupThreadScreen> {
                         style: const TextStyle(color: OrigilinkColors.textSecondary),
                       ),
                     )
-                  : ListView.builder(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      itemCount: _messages.length,
-                      itemBuilder: (context, index) {
-                        final m = _messages[index];
-                        return Align(
-                          alignment: m.isMine ? Alignment.centerRight : Alignment.centerLeft,
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(vertical: 4),
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                            constraints: BoxConstraints(
-                              maxWidth: MediaQuery.of(context).size.width * 0.75,
-                            ),
-                            decoration: BoxDecoration(
-                              color: m.isMine ? OrigilinkColors.primary : Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (!m.isMine)
-                                  Text(
-                                    m.senderName,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: OrigilinkColors.textSecondary,
-                                    ),
-                                  ),
-                                if (m.attachment != null) ...[
-                                  _GroupAttachmentPreview(groupId: widget.group.id, message: m),
-                                  if ((m.attachment!.caption ?? '').isNotEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 4),
-                                      child: Text(m.attachment!.caption!),
-                                    ),
-                                ] else
-                                  Text(m.content),
-                              ],
-                            ),
-                          ),
+                  : Builder(
+                      builder: (context) {
+                        final visible = _messages.length <= _visibleCount
+                            ? _messages
+                            : _messages.sublist(_messages.length - _visibleCount);
+                        return ListView.builder(
+                          controller: _scrollController,
+                          reverse: true,
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                          itemCount: visible.length,
+                          itemBuilder: (context, index) {
+                            final reversedIndex = visible.length - 1 - index;
+                            // Index-based lookahead, same reasoning as
+                            // `chat_thread.dart`'s: widens the visible
+                            // window once the buffer above the built row
+                            // drops under one page. Deferred to a
+                            // post-frame callback since `itemBuilder` runs
+                            // during this list's layout pass and
+                            // `setState` can't be called synchronously
+                            // from there.
+                            if (reversedIndex < _pageSize && !_lookaheadScheduled) {
+                              _lookaheadScheduled = true;
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                _lookaheadScheduled = false;
+                                _expandVisibleWindow();
+                              });
+                            }
+                            final m = visible[reversedIndex];
+                            final previous = reversedIndex > 0 ? visible[reversedIndex - 1] : null;
+                            final messageDate = DateTime.fromMillisecondsSinceEpoch(
+                              m.createdAt.toInt() * 1000,
+                            );
+                            final previousDate = previous == null
+                                ? null
+                                : DateTime.fromMillisecondsSinceEpoch(
+                                    previous.createdAt.toInt() * 1000,
+                                  );
+                            final isNewDay =
+                                previousDate == null ||
+                                previousDate.year != messageDate.year ||
+                                previousDate.month != messageDate.month ||
+                                previousDate.day != messageDate.day;
+                            // Discord-style grouping (see
+                            // `chat_thread.dart`'s `_MessageBubble` doc) —
+                            // a group can have many senders, so grouping
+                            // matters even more here.
+                            final groupStart =
+                                previous == null ||
+                                previous.senderUid != m.senderUid ||
+                                isNewDay ||
+                                messageDate.difference(previousDate).inMinutes.abs() > 5;
+                            final row = _GroupMessageRow(
+                              message: m,
+                              groupId: widget.group.id,
+                              groupStart: groupStart,
+                            );
+                            if (!isNewDay) return row;
+                            return Column(children: [DateDividerChip(date: messageDate), row]);
+                          },
                         );
                       },
                     ),
@@ -371,10 +478,6 @@ class _GroupThreadScreenState extends State<GroupThreadScreen> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  IconButton(
-                    icon: const Icon(Icons.attach_file, color: OrigilinkColors.textSecondary),
-                    onPressed: _sending ? null : _pickAttachment,
-                  ),
                   Expanded(
                     child: Container(
                       constraints: const BoxConstraints(minHeight: 44),
@@ -382,17 +485,28 @@ class _GroupThreadScreenState extends State<GroupThreadScreen> {
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(24),
                       ),
-                      child: TextField(
-                        controller: _controller,
-                        minLines: 1,
-                        maxLines: 5,
-                        textInputAction: TextInputAction.send,
-                        onSubmitted: (_) => _send(),
-                        decoration: InputDecoration(
-                          hintText: l10n.typeMessageHint,
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
-                        ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.attach_file, color: OrigilinkColors.textSecondary),
+                            onPressed: _sending ? null : _pickAttachment,
+                          ),
+                          Expanded(
+                            child: TextField(
+                              controller: _controller,
+                              minLines: 1,
+                              maxLines: 5,
+                              textInputAction: TextInputAction.send,
+                              onSubmitted: (_) => _send(),
+                              decoration: InputDecoration(
+                                hintText: l10n.typeMessageHint,
+                                border: InputBorder.none,
+                                contentPadding: const EdgeInsets.only(right: 14, top: 11, bottom: 11),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -414,6 +528,112 @@ class _GroupThreadScreenState extends State<GroupThreadScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Discord-style flat row, matching `chat_thread.dart`'s `_MessageBubble`
+/// and `global_chat_thread.dart`'s `_ChannelMessageBubble` — no bubble
+/// background, always left-aligned, avatar/name/time shown only on
+/// [groupStart]. Groups have no per-member avatar image (see
+/// `_MemberListSheet`), so the avatar is an initial-letter circle instead.
+class _GroupMessageRow extends StatelessWidget {
+  const _GroupMessageRow({required this.message, required this.groupId, required this.groupStart});
+
+  final groups_api.GroupChatMessage message;
+  final String groupId;
+  final bool groupStart;
+
+  String _formatTime(int epochSeconds) {
+    final dt = DateTime.fromMillisecondsSinceEpoch(epochSeconds * 1000);
+    final hour = dt.hour.toString().padLeft(2, '0');
+    final minute = dt.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final senderName = message.isMine ? l10n.youLabel : message.senderName;
+
+    final avatarColumn = SizedBox(
+      width: 36,
+      child: groupStart
+          ? CircleAvatar(
+              radius: 16,
+              backgroundColor: OrigilinkColors.primary,
+              child: Text(
+                senderName.isNotEmpty ? senderName[0].toUpperCase() : '?',
+                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            )
+          : null,
+    );
+
+    return Container(
+      margin: EdgeInsets.only(top: groupStart ? 12 : 1, bottom: 1),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          avatarColumn,
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (groupStart)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(
+                          senderName,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: message.isMine
+                                ? OrigilinkColors.primaryDark
+                                : OrigilinkColors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _formatTime(message.createdAt.toInt()),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: OrigilinkColors.textSecondary.withValues(alpha: 0.8),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (message.attachment != null) ...[
+                  _GroupAttachmentPreview(groupId: groupId, message: message),
+                  if ((message.attachment!.caption ?? '').isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        message.attachment!.caption!,
+                        style: const TextStyle(
+                          color: OrigilinkColors.textPrimary,
+                          fontSize: 16.5,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                ] else
+                  Text(
+                    message.content,
+                    style: const TextStyle(color: OrigilinkColors.textPrimary, fontSize: 16.5, height: 1.35),
+                  ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -567,7 +787,12 @@ class _GroupAttachmentPreviewState extends State<_GroupAttachmentPreview> {
       if (_localPath != null) {
         return ClipRRect(
           borderRadius: BorderRadius.circular(8),
-          child: Image.file(File(_localPath!), fit: BoxFit.cover, width: 220, height: 220),
+          child: Image.file(
+            File(_localPath!),
+            fit: BoxFit.cover,
+            width: 220,
+            height: 220,
+          ),
         );
       }
       return Container(
