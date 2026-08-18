@@ -60,17 +60,49 @@ class PrivateGlobalToggle extends StatelessWidget {
           color: selected ? OrigilinkColors.textPrimary : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
         ),
-        child: Badge(
-          isLabelVisible: badgeCount > 0,
-          label: Text(badgeCount > 99 ? '99+' : '$badgeCount'),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: selected ? Colors.white : OrigilinkColors.textSecondary,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: selected ? Colors.white : OrigilinkColors.textSecondary,
+              ),
             ),
-          ),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 150),
+              alignment: Alignment.centerLeft,
+              child: badgeCount > 0
+                  ? Padding(
+                      padding: const EdgeInsets.only(left: 4),
+                      child: Container(
+                        height: 18,
+                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                        constraints: const BoxConstraints(minWidth: 18),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 1.5),
+                          child: Text(
+                            badgeCount > 99 ? '99+' : '$badgeCount',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ],
         ),
       ),
     );
