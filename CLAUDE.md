@@ -53,7 +53,7 @@ Rust itself is never built with `cargo build` directly — `flutter run`/`flutte
 
 Commit in focused, single-purpose commits rather than bundling unrelated changes — split by nature of change (new feature / rename-refactor / visual tweak / bug fix) so `git log` and `git blame` stay useful. Don't let unrelated changes pile up into one large commit.
 
-**Versioning**: when asked to bump the app version for a release, just raise `pubspec.yaml`'s `version:` normally (e.g. `0.2.0` -> `0.2.1`) — don't invent your own build-number scheme (`+1`, `+2`, ...) unless the user explicitly asks for a specific build number.
+**Versioning**: when asked to bump the app version for a release, just raise `pubspec.yaml`'s `version:` normally (e.g. `0.2.0` -> `0.2.1`) with no `+N` build-number suffix — don't invent your own build-number scheme unless the user explicitly asks for one.
 
 ## Architecture
 
