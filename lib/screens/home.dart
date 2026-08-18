@@ -28,6 +28,7 @@ import 'package:origilink/src/rust/api/config.dart' as config_api;
 import 'package:origilink/src/rust/api/friends.dart' as friends_api;
 import 'package:origilink/src/rust/api/global_chat.dart' as global_chat_api;
 import 'package:origilink/src/rust/api/groups.dart' as groups_api;
+import 'package:origilink/src/rust/api/keys.dart' as keys_api;
 import 'package:origilink/src/rust/api/sync.dart' as sync_api;
 import 'package:origilink/widgets/private_global_toggle.dart';
 
@@ -75,6 +76,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// ("which world am I looking at") rather than a per-tab setting.
   bool _globalMode = false;
   String? _globalPubkey;
+  String? _uid;
 
   List<friends_api.Friend> _friends = [];
   List<groups_api.Group> _groups = [];
@@ -133,6 +135,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _subscribeFriendEvents();
     friendEventsRefreshSignal.addListener(_subscribeFriendEvents);
     _loadGlobalPubkey();
+    _loadUid();
   }
 
   Future<void> _loadGlobalPubkey() async {
@@ -142,6 +145,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final pubkey = await global_chat_api.globalChatIdentityPubkey(mnemonic: mnemonic);
     if (!mounted) return;
     setState(() => _globalPubkey = pubkey);
+  }
+
+  Future<void> _loadUid() async {
+    const secureStorage = FlutterSecureStorage();
+    final mnemonic = await secureStorage.read(key: seedStorageKey);
+    if (mnemonic == null) return;
+    final uid = await keys_api.getAccountUid(mnemonic: mnemonic);
+    if (!mounted) return;
+    setState(() => _uid = uid);
   }
 
   @override
@@ -585,7 +597,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       children: [
         AccountFriendsTab(
           profile: _profile,
+          uid: _uid,
           friends: _friends,
+          unreadCounts: _unreadCounts,
           onEditProfile: _editProfile,
           onAddFriend: _openAddFriend,
           onRefreshFriends: _refreshFriends,
@@ -976,15 +990,28 @@ class _GlobalProfileTabState extends State<_GlobalProfileTab> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        (_profile?.about.isNotEmpty ?? false)
-                            ? _profile!.about
-                            : (widget.globalPubkey != null
-                                  ? '${widget.globalPubkey!.substring(0, 16)}…'
-                                  : ''),
-                        style: const TextStyle(fontSize: 13, color: OrigilinkColors.textSecondary),
+                        (_profile?.about.isNotEmpty ?? false) ? _profile!.about : l10n.noStatusMessage,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: (_profile?.about.isNotEmpty ?? false)
+                              ? OrigilinkColors.textSecondary
+                              : OrigilinkColors.textSecondary.withValues(alpha: 0.6),
+                        ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
+                      if (widget.globalPubkey != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'key:${widget.globalPubkey!.substring(0, 16)}…',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            color: OrigilinkColors.textSecondary,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
                     ],
                   ),
                 ),

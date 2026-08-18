@@ -14,7 +14,9 @@ class AccountFriendsTab extends StatelessWidget {
   const AccountFriendsTab({
     super.key,
     required this.profile,
+    this.uid,
     required this.friends,
+    required this.unreadCounts,
     required this.onEditProfile,
     required this.onAddFriend,
     required this.onRefreshFriends,
@@ -28,11 +30,22 @@ class AccountFriendsTab extends StatelessWidget {
 
   final account_api.Account profile;
 
+  /// This account's UID (`keys::derive_uid`) — stable across all
+  /// relationships, unlike the per-friend relationship pubkey. Shown here
+  /// so the user can compare it against what a friend sees.
+  final String? uid;
+
   /// May include blocked friends — filtered out below (see
   /// `friend_profile.dart`'s class doc comment on why blocking hides a
   /// friend from this list; Settings > Blocked accounts is where they're
   /// managed instead).
   final List<friends_api.Friend> friends;
+
+  /// Per-friend unread counts, owned by `home.dart` and shared with the Talk
+  /// tab's list — shown here as the same badge so a friend with unread
+  /// messages stands out in this list too, not just in Talk.
+  final Map<String, int> unreadCounts;
+
   final VoidCallback onEditProfile;
   final VoidCallback onAddFriend;
 
@@ -63,7 +76,7 @@ class AccountFriendsTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _ProfileCard(profile: profile, onEdit: onEditProfile),
+          _ProfileCard(profile: profile, uid: uid, onEdit: onEditProfile),
           const SizedBox(height: 24),
           if (visibleFriends.isEmpty) ...[
             _AddFriendButton(label: l10n.addFriendByQr, onTap: onAddFriend),
@@ -99,6 +112,7 @@ class AccountFriendsTab extends StatelessWidget {
                   ? const _EmptyFriendsList()
                   : _FriendsList(
                       friends: visibleFriends,
+                      unreadCounts: unreadCounts,
                       onToggleFavorite: onToggleFavorite,
                       onBlockFriend: onBlockFriend,
                       onUnblockFriend: onUnblockFriend,
@@ -117,6 +131,7 @@ class AccountFriendsTab extends StatelessWidget {
 class _FriendsList extends StatelessWidget {
   const _FriendsList({
     required this.friends,
+    required this.unreadCounts,
     required this.onToggleFavorite,
     required this.onBlockFriend,
     required this.onUnblockFriend,
@@ -126,6 +141,7 @@ class _FriendsList extends StatelessWidget {
   });
 
   final List<friends_api.Friend> friends;
+  final Map<String, int> unreadCounts;
   final Future<void> Function(friends_api.Friend friend) onToggleFavorite;
   final Future<void> Function(friends_api.Friend friend) onBlockFriend;
   final Future<void> Function(friends_api.Friend friend) onUnblockFriend;
@@ -167,6 +183,7 @@ class _FriendsList extends StatelessWidget {
       itemBuilder: (context, index) {
         final friend = sorted[index];
         final hasAvatar = friend.avatarPath != null && File(friend.avatarPath!).existsSync();
+        final unread = unreadCounts[friend.pubkey] ?? 0;
         return InkWell(
           onTap: () => _openProfile(context, friend),
           child: Padding(
@@ -212,6 +229,26 @@ class _FriendsList extends StatelessWidget {
                   const SizedBox(width: 8),
                   const Icon(Icons.star, size: 18, color: OrigilinkColors.primaryDark),
                 ],
+                if (unread > 0) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    constraints: const BoxConstraints(minWidth: 20),
+                    decoration: BoxDecoration(
+                      color: OrigilinkColors.primaryDark,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      unread >= 99 ? '99+' : '$unread',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -222,9 +259,10 @@ class _FriendsList extends StatelessWidget {
 }
 
 class _ProfileCard extends StatelessWidget {
-  const _ProfileCard({required this.profile, required this.onEdit});
+  const _ProfileCard({required this.profile, this.uid, required this.onEdit});
 
   final account_api.Account profile;
+  final String? uid;
   final VoidCallback onEdit;
 
   @override
@@ -284,6 +322,18 @@ class _ProfileCard extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
+                if (uid != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'uid:${uid!.substring(0, uid!.length > 16 ? 16 : uid!.length)}…',
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                      color: OrigilinkColors.textSecondary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ],
             ),
           ),
