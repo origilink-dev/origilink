@@ -53,6 +53,8 @@ Rust itself is never built with `cargo build` directly — `flutter run`/`flutte
 
 Commit in focused, single-purpose commits rather than bundling unrelated changes — split by nature of change (new feature / rename-refactor / visual tweak / bug fix) so `git log` and `git blame` stay useful. Don't let unrelated changes pile up into one large commit.
 
+**Versioning**: when asked to bump the app version for a release, just raise `pubspec.yaml`'s `version:` normally (e.g. `0.2.0` -> `0.2.1`) — don't invent your own build-number scheme (`+1`, `+2`, ...) unless the user explicitly asks for a specific build number.
+
 ## Architecture
 
 **Split**: Flutter (`lib/`) owns UI only — screen layout, input, calling into Rust, displaying results. Rust (`rust/src/api/`) owns all key management, protocol logic, and storage/DB operations. Don't put persistence or crypto logic in Dart. `rust/src/api/simple.rs` still has the `greet()` template function left over from scaffolding — unused, safe to remove whenever it's next touched.
